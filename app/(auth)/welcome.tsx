@@ -1,21 +1,20 @@
-import { View, Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+/**
+ * Stroll — Welcome / Landing
+ * app/(auth)/welcome.tsx
+ *
+ * PRD Screen Inventory §1, Screen 1 — Introduces Stroll. Real version
+ * contains: Hero, Product Description, Sample Experiences, Sample
+ * Collections, Sign Up / Log In actions. Sprint 4: placeholder only.
+ */
+
+import React from 'react';
+import { PlaceholderScreen } from '@/components/placeholder/PlaceholderScreen';
 
 export default function WelcomeScreen() {
   return (
-    <SafeAreaView className="flex-1 bg-neutral-bg">
-      <View className="flex-1 items-center justify-center px-6">
-        <Text
-          style={{ fontFamily: 'PlusJakartaSans-Bold', fontSize: 36, color: '#111111', textAlign: 'center' }}
-        >
-          Stroll
-        </Text>
-        <Text
-          style={{ fontFamily: 'Inter-Regular', fontSize: 15, color: '#6B7280', textAlign: 'center', marginTop: 12 }}
-        >
-          Discover your city through people who actually know it.
-        </Text>
-      </View>
-    </SafeAreaView>
+    <PlaceholderScreen
+      title="Welcome to Stroll"
+      description="Discover your city through people who actually know it."
+    />
   );
 }
