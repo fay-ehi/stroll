@@ -4,14 +4,24 @@
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "allowJs": true,
+    "jsx": "react-native",
     "baseUrl": ".",
     "paths": {
       "@/*": [
@@ -20,6 +30,12 @@
       "@components/*": [
         "src/components/*"
       ],
+      "@/theme": [
+    "src/theme/index"
+  ],
+  "@/theme/*": [
+    "src/theme/*"
+  ],
       "@constants/*": [
         "src/constants/*"
       ],

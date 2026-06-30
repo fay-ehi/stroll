@@ -19,6 +19,7 @@ module.exports = function (api) {
             '@stores': './src/stores',
             '@types': './src/types',
             '@utils': './src/utils',
+            '@/theme': './src/theme',
           },
           extensions: ['.ios.js', '.android.js', '.js', '.ts', '.tsx', '.json'],
         },
