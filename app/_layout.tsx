@@ -2,18 +2,20 @@
  * Stroll — Root Layout
  * app/_layout.tsx
  *
- * Sprint 5 update: adds ToastProvider to the provider stack.
- * Everything else from Sprint 4 is preserved exactly.
+ * Sprint 1 update: adds AuthProvider wrapping the Stack.
+ * AuthProvider initializes the Supabase session and starts the auth
+ * state listener before any screen renders.
  *
  * Provider order (outermost → innermost):
- *   GestureHandlerRootView  — gesture recognition must be at the root
- *   ErrorBoundary           — catches render errors anywhere below
- *   QueryClientProvider     — TanStack Query cache
- *   SafeAreaProvider        — safe area insets
- *   ToastProvider           — global toast layer (Sprint 5)
+ *   GestureHandlerRootView
+ *   ErrorBoundary
+ *   QueryClientProvider
+ *   SafeAreaProvider
+ *   ToastProvider
+ *   AuthProvider          ← Sprint 1 addition
  *     StatusBar
- *     View (background)
- *       Stack (routes)
+ *     View
+ *     Stack
  */
 
 import { useEffect } from 'react';
@@ -29,6 +31,7 @@ import { STROLL_FONTS } from '@/theme/fonts';
 import { theme } from '@/theme';
 import { ErrorBoundary } from '@/components/shell/ErrorBoundary';
 import { ToastProvider } from '@/components/toast/ToastProvider';
+import { AuthProvider } from '@/components/shell/AuthProvider';
 import { TIMEOUTS } from '@/constants/app';
 
 SplashScreen.preventAutoHideAsync();
@@ -52,16 +55,15 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      // Small delay so the splash doesn't flash away too abruptly.
       const timer = setTimeout(
         () => SplashScreen.hideAsync(),
         TIMEOUTS.SPLASH_MIN_MS
       );
       return () => clearTimeout(timer);
     }
-    return undefined;  // ← add this line
-}, [fontsLoaded, fontError]);
-  
+    return undefined;
+  }, [fontsLoaded, fontError]);
+
   if (!fontsLoaded && !fontError) {
     return null;
   }
@@ -72,30 +74,32 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <SafeAreaProvider>
             <ToastProvider>
-              <StatusBar
-                barStyle="dark-content"
-                backgroundColor={theme.colors.neutral.background}
-                translucent={Platform.OS === 'android'}
-              />
-              <View style={{ flex: 1, backgroundColor: theme.colors.neutral.background }}>
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    contentStyle: {
-                      backgroundColor: theme.colors.neutral.background,
-                    },
-                    animation: Platform.OS === 'android' ? 'fade' : 'default',
-                  }}
-                >
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="(auth)" />
-                  <Stack.Screen name="(app)" />
-                  <Stack.Screen
-                    name="(modals)"
-                    options={{ presentation: 'modal' }}
-                  />
-                </Stack>
-              </View>
+              <AuthProvider>
+                <StatusBar
+                  barStyle="dark-content"
+                  backgroundColor={theme.colors.neutral.background}
+                  translucent={Platform.OS === 'android'}
+                />
+                <View style={{ flex: 1, backgroundColor: theme.colors.neutral.background }}>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      contentStyle: {
+                        backgroundColor: theme.colors.neutral.background,
+                      },
+                      animation: Platform.OS === 'android' ? 'fade' : 'default',
+                    }}
+                  >
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="(auth)" />
+                    <Stack.Screen name="(app)" />
+                    <Stack.Screen
+                      name="(modals)"
+                      options={{ presentation: 'modal' }}
+                    />
+                  </Stack>
+                </View>
+              </AuthProvider>
             </ToastProvider>
           </SafeAreaProvider>
         </QueryClientProvider>

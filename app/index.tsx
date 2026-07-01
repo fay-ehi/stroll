@@ -1,21 +1,26 @@
 /**
- * Stroll — Root Index Redirect
+ * Stroll — Root Index
  * app/index.tsx
  *
- * Sprint 4 scope: "Configure redirects only. Do not implement
- * authentication yet." There is no real session check here — that's
- * explicit future work once Supabase auth exists. For now this always
- * redirects to the (auth) Welcome screen, which is the correct default
- * for an app with no signed-in user.
+ * Route guard entry point. Reads auth state and redirects to the
+ * correct group. The AuthProvider in _layout.tsx ensures auth status
+ * is never 'loading' by the time this renders (it shows AppLoader until
+ * initialization completes).
  *
- * When real auth lands, this file is exactly where the session check
- * belongs: read auth state, redirect to (app)/(tabs)/discover if a
- * session exists, otherwise (auth)/welcome — same shape, real condition.
+ * Authenticated  → (app)/(tabs)/discover
+ * Unauthenticated → (auth)/welcome
  */
 
 import { Redirect } from 'expo-router';
-import { AUTH_ROUTES } from '@/constants/routes';
+import { useAuthStore, selectIsAuthenticated } from '@/stores/authStore';
+import { ROUTES } from '@/constants/routes';
 
 export default function RootIndex() {
-  return <Redirect href={AUTH_ROUTES.welcome} />;
+  const isAuthenticated = useAuthStore(selectIsAuthenticated);
+
+  if (isAuthenticated) {
+    return <Redirect href={ROUTES.tabs.discover as never} />;
+  }
+
+  return <Redirect href={ROUTES.auth.welcome as never} />;
 }

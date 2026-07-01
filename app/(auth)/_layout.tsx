@@ -2,16 +2,25 @@
  * Stroll — Auth Group Layout
  * app/(auth)/_layout.tsx
  *
- * PRD §8.1 Authentication: Welcome/Landing, Sign Up, Log In,
- * Forgot Password. Sprint 4 scope: routing structure + placeholders only
- * — no real authentication logic, no Supabase calls (per prompt rules).
+ * Route guard: authenticated users who land here (e.g. via a stale deep
+ * link or back-navigation) are immediately redirected to the app.
+ *
+ * This prevents signed-in users from seeing the Welcome/Sign In screens.
  */
 
 import React from 'react';
-import { Stack } from 'expo-router';
+import { Redirect, Stack } from 'expo-router';
+import { useAuthStore, selectIsAuthenticated } from '@/stores/authStore';
+import { ROUTES } from '@/constants/routes';
 import { theme } from '@/theme';
 
 export default function AuthLayout() {
+  const isAuthenticated = useAuthStore(selectIsAuthenticated);
+
+  if (isAuthenticated) {
+    return <Redirect href={ROUTES.tabs.discover as never} />;
+  }
+
   return (
     <Stack
       screenOptions={{
@@ -25,6 +34,7 @@ export default function AuthLayout() {
       <Stack.Screen name="sign-up" />
       <Stack.Screen name="log-in" />
       <Stack.Screen name="forgot-password" />
+      <Stack.Screen name="reset-password" />
     </Stack>
   );
 }
