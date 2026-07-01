@@ -82,8 +82,9 @@ export function getTextStyle(
   color?: string,
   textAlign?: 'left' | 'center' | 'right' | 'auto'
 ): TextStylePreset & { color?: string; textAlign?: string } {
+  const preset = textStyles[key] as TextStylePreset;
   return {
-    ...textStyles[key],
+    ...preset,
     ...(color     ? { color }     : {}),
     ...(textAlign ? { textAlign } : {}),
   };

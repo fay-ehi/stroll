@@ -6,18 +6,22 @@
  * Design System (§6, §7). Each component consumes `textStyles` presets
  * from the theme — no font values are ever hardcoded here.
  *
- * Usage:
- *   <H2>Discover your city</H2>
- *   <Body color={theme.colors.text.secondary}>Supporting copy</Body>
- *   <Caption numberOfLines={1}>Truncated metadata</Caption>
- *
- * Design Philosophy §17 — Typography should feel calm, modern, confident.
- * Text should never compete with imagery. These components default to
- * theme.colors.text.primary and accept a `color` override for hierarchy.
+ * Fix log (Sprint 5 tsc pass):
+ *   - StyleSheet.create() now receives an explicit cast to
+ *     Record<string, TextStyle> so TypeScript accepts TextStylePreset
+ *     values as valid style entries. TextStylePreset is structurally
+ *     compatible with TextStyle — the cast is safe, not a lie.
+ *   - Style lookup cast to `TextStyle | undefined` to satisfy the
+ *     Text style prop type under noUncheckedIndexedAccess.
  */
 
 import React from 'react';
-import { Text, type TextProps, type TextStyle, StyleSheet } from 'react-native';
+import {
+  Text,
+  StyleSheet,
+  type TextProps,
+  type TextStyle,
+} from 'react-native';
 import { theme } from '@/theme';
 import { textStyles } from '@/theme/typography';
 
@@ -33,9 +37,19 @@ export interface StrollTextProps extends TextProps {
   children?: React.ReactNode;
 }
 
+// ─── StyleSheet ────────────────────────────────────────────────────────────────
+// Cast as Record<string, TextStyle> so StyleSheet.create() accepts our
+// TextStylePreset objects. TextStylePreset is structurally compatible with
+// TextStyle — fontFamily, fontSize, lineHeight, fontWeight, letterSpacing
+// are all valid TextStyle fields. The cast is safe.
+
+const styles = StyleSheet.create(
+  textStyles as unknown as Record<string, TextStyle>
+);
+
 // ─── Factory ───────────────────────────────────────────────────────────────────
-// Internal factory that creates a typed component bound to one textStyles preset.
-// Avoids repeating the same component body eleven times.
+// Internal factory that creates a typed component bound to one textStyles
+// preset. Avoids repeating the same component body fourteen times.
 
 function createTextComponent(
   presetKey: keyof typeof textStyles,
@@ -44,17 +58,21 @@ function createTextComponent(
 ) {
   const Component = React.forwardRef<Text, StrollTextProps>(
     ({ color, align, style, children, ...rest }, ref) => {
+      // Cast the indexed lookup to TextStyle — safe because every key in
+      // textStyles maps to a TextStyle-compatible object (verified by
+      // TextStylePreset's structure), and StyleSheet.create processed them
+      // all as TextStyle entries above.
+      const presetStyle = styles[presetKey] as TextStyle | undefined;
+
       return (
         <Text
           ref={ref}
           style={[
-            styles[presetKey as keyof typeof styles],
+            presetStyle,
             { color: color ?? defaultColor },
             align ? { textAlign: align } : undefined,
             style,
           ]}
-          // Typography components render meaningful content — always
-          // accessible by default unless explicitly suppressed by caller.
           accessibilityRole={rest.accessibilityRole ?? 'text'}
           {...rest}
         >
@@ -67,54 +85,22 @@ function createTextComponent(
   return Component;
 }
 
-// ─── StyleSheet from textStyles presets ────────────────────────────────────────
-// Pre-built once at module load — never recreated per render.
-
-const styles = StyleSheet.create({
-  display:           textStyles.display,
-  h1:                textStyles.h1,
-  h2:                textStyles.h2,
-  h3:                textStyles.h3,
-  h4:                textStyles.h4,
-  h5:                textStyles.h5,
-  bodyLarge:         textStyles.bodyLarge,
-  bodyLargeMedium:   textStyles.bodyLargeMedium,
-  bodyLargeSemiBold: textStyles.bodyLargeSemiBold,
-  body:              textStyles.body,
-  bodyMedium:        textStyles.bodyMedium,
-  bodySemiBold:      textStyles.bodySemiBold,
-  bodySmall:         textStyles.bodySmall,
-  bodySmallMedium:   textStyles.bodySmallMedium,
-  bodySmallSemiBold: textStyles.bodySmallSemiBold,
-  caption:           textStyles.caption,
-  captionMedium:     textStyles.captionMedium,
-  tiny:              textStyles.tiny,
-  tinyMedium:        textStyles.tinyMedium,
-  buttonLabel:       textStyles.buttonLabel,
-  label:             textStyles.label,
-});
-
 // ─── Exported Components ───────────────────────────────────────────────────────
-// Headings default to primary text color and use Plus Jakarta Sans (via preset).
-// Body variants default to primary text color and use Inter (via preset).
+// Headings use Plus Jakarta Sans (via preset), body uses Inter (via preset).
 
-export const Display = createTextComponent('display', theme.colors.text.primary, 'Display');
-export const H1 = createTextComponent('h1', theme.colors.text.primary, 'H1');
-export const H2 = createTextComponent('h2', theme.colors.text.primary, 'H2');
-export const H3 = createTextComponent('h3', theme.colors.text.primary, 'H3');
-export const H4 = createTextComponent('h4', theme.colors.text.primary, 'H4');
-export const H5 = createTextComponent('h5', theme.colors.text.primary, 'H5');
+export const Display    = createTextComponent('display',    theme.colors.text.primary,   'Display');
+export const H1         = createTextComponent('h1',         theme.colors.text.primary,   'H1');
+export const H2         = createTextComponent('h2',         theme.colors.text.primary,   'H2');
+export const H3         = createTextComponent('h3',         theme.colors.text.primary,   'H3');
+export const H4         = createTextComponent('h4',         theme.colors.text.primary,   'H4');
+export const H5         = createTextComponent('h5',         theme.colors.text.primary,   'H5');
 
-export const BodyLarge = createTextComponent('bodyLarge', theme.colors.text.primary, 'BodyLarge');
-export const Body = createTextComponent('body', theme.colors.text.primary, 'Body');
-export const BodySmall = createTextComponent('bodySmall', theme.colors.text.secondary, 'BodySmall');
-export const Caption = createTextComponent('caption', theme.colors.text.tertiary, 'Caption');
-export const Tiny = createTextComponent('tiny', theme.colors.text.tertiary, 'Tiny');
+export const BodyLarge  = createTextComponent('bodyLarge',  theme.colors.text.primary,   'BodyLarge');
+export const Body       = createTextComponent('body',       theme.colors.text.primary,   'Body');
+export const BodySmall  = createTextComponent('bodySmall',  theme.colors.text.secondary, 'BodySmall');
+export const Caption    = createTextComponent('caption',    theme.colors.text.tertiary,  'Caption');
+export const Tiny       = createTextComponent('tiny',       theme.colors.text.tertiary,  'Tiny');
 
-// ─── Weight Variants ────────────────────────────────────────────────────────────
-// Medium/SemiBold variants of body sizes, for inline emphasis without
-// switching typographic role (e.g. a bolded label inside a paragraph).
-
-export const BodyMedium = createTextComponent('bodyMedium', theme.colors.text.primary, 'BodyMedium');
-export const BodySemiBold = createTextComponent('bodySemiBold', theme.colors.text.primary, 'BodySemiBold');
-export const Label = createTextComponent('label', theme.colors.text.secondary, 'Label');
+export const BodyMedium   = createTextComponent('bodyMedium',   theme.colors.text.primary,   'BodyMedium');
+export const BodySemiBold = createTextComponent('bodySemiBold', theme.colors.text.primary,   'BodySemiBold');
+export const Label        = createTextComponent('label',        theme.colors.text.secondary, 'Label');
