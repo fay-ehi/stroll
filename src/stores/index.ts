@@ -22,3 +22,8 @@ export {
   type AuthStatus,
   type AuthState,
 } from './authStore';
+
+export {
+  useOnboardingStore,
+  type OnboardingData,
+} from './onboardingStore';

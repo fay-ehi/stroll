@@ -2,25 +2,47 @@
  * Stroll — App Group Layout
  * app/(app)/_layout.tsx
  *
- * Route guard: unauthenticated users who land here (e.g. via a deep link
- * to a place or experience before signing in) are redirected to welcome.
+ * Sprint 1 Prompt 2 update: adds onboarding guard.
  *
- * This protects all app routes without needing a guard on every screen.
+ * Logic:
+ *   - Unauthenticated → (auth)/welcome
+ *   - Authenticated + onboarding incomplete → (onboarding)/city
+ *   - Authenticated + onboarding complete → show app stack normally
+ *
+ * The onboarding check uses useOnboardingGuard which:
+ *   1. Checks AsyncStorage first (fast, no network)
+ *   2. Falls back to Supabase profile check
+ *   Shows AppLoader while resolving.
  */
 
 import React from 'react';
 import { Redirect, Stack } from 'expo-router';
 import { useAuthStore, selectIsAuthenticated } from '@/stores/authStore';
+import { useOnboardingGuard } from '@/hooks/useOnboarding';
+import { AppLoader } from '@/components/loading/AppLoader';
 import { ROUTES } from '@/constants/routes';
 import { theme } from '@/theme';
 
 export default function AppLayout() {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);
+  const { status }      = useOnboardingGuard();
 
+  // Not authenticated — go to auth flow.
   if (!isAuthenticated) {
     return <Redirect href={ROUTES.auth.welcome as never} />;
   }
 
+  // Still checking onboarding status.
+  if (status === 'loading') {
+    return <AppLoader />;
+  }
+
+  // Authenticated but onboarding not done — go to onboarding.
+  if (status === 'show_onboarding') {
+    return <Redirect href="/(onboarding)/city" />;
+  }
+
+  // Authenticated + onboarding complete — show the app.
   return (
     <Stack
       screenOptions={{

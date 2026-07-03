@@ -2,7 +2,8 @@
  * Stroll — Log In Screen
  * app/(auth)/log-in.tsx
  *
- * PRD §8.1 — Fields: Email, Password. Action: Log In.
+ * Fix: Submit button moved into the `footer` prop so it is pinned
+ * outside the ScrollView and always visible above the keyboard.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -27,7 +28,9 @@ export default function LogInScreen() {
 
   const [values, setValues]   = useState<SignInFormValues>(EMPTY_FORM);
   const [errors, setErrors]   = useState<SignInFormErrors>({});
-  const [touched, setTouched] = useState<Partial<Record<keyof SignInFormValues, boolean>>>({});
+  const [touched, setTouched] = useState<
+    Partial<Record<keyof SignInFormValues, boolean>>
+  >({});
 
   const setValue = useCallback(
     (field: keyof SignInFormValues) => (text: string) => {
@@ -52,14 +55,10 @@ export default function LogInScreen() {
     setTouched({ email: true, password: true });
     const formErrors = validate(values);
     setErrors(formErrors);
-
-    const hasErrors = Object.values(formErrors).some(Boolean);
-    if (hasErrors) return;
+    if (Object.values(formErrors).some(Boolean)) return;
 
     const result = await submit(values);
-
     if (result.ok) {
-      // Route guard in (app)/_layout.tsx handles the redirect.
       router.replace(ROUTES.tabs.discover as never);
     }
   }, [validate, values, submit]);
@@ -71,9 +70,20 @@ export default function LogInScreen() {
       showBack
       footer={
         <>
+      
+          <Button
+            label="Sign in"
+            variant="primary"
+            fullWidth
+            loading={loading}
+            onPress={handleSubmit}
+            
+          />
+
           <Pressable
             onPress={() => router.push(ROUTES.auth.forgotPassword as never)}
             accessibilityRole="button"
+            style={styles.link}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <BodySmall color={theme.colors.brand.primary}>
@@ -123,21 +133,12 @@ export default function LogInScreen() {
         textContentType="password"
         returnKeyType="done"
       />
-
-      <Button
-        label="Sign in"
-        variant="primary"
-        fullWidth
-        loading={loading}
-        onPress={handleSubmit}
-        style={styles.submitButton}
-      />
     </AuthScreenWrapper>
   );
 }
 
 const styles = StyleSheet.create({
-  submitButton: {
-    marginTop: theme.spacing.md,
+  link: {
+    alignItems: 'center',
   },
 });

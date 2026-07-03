@@ -2,17 +2,11 @@
  * Stroll — Auth Screen Wrapper
  * src/components/auth/AuthScreenWrapper.tsx
  *
- * Shared layout shell for every auth screen. Handles:
- *   - Safe area + scroll
- *   - Keyboard avoidance
- *   - Consistent top/bottom padding
- *   - Back button (optional)
- *   - Logo/brand mark area
- *
- * Design Philosophy §28 — Onboarding:
- *   "Onboarding should create excitement, not friction."
- *   "Every onboarding step should answer one of three questions:
- *    Why does Stroll exist? What can I discover here? What should I do next?"
+ * Sprint 1 Prompt 2 fix: footer (submit button) moved outside the
+ * ScrollView and pinned to the bottom of the screen. This ensures
+ * the button is always visible regardless of keyboard state or screen
+ * height — the previous version could push the button below the fold
+ * on smaller devices when the keyboard was open.
  */
 
 import React from 'react';
@@ -34,15 +28,12 @@ import { ArrowLeft } from 'lucide-react-native';
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export interface AuthScreenWrapperProps {
-  /** Screen headline — short and direct. */
-  title: string;
-  /** Supporting copy below the title. */
-  subtitle?: string;
-  /** Show a back arrow in the top left. */
-  showBack?: boolean;
-  children: React.ReactNode;
-  /** Rendered below the form, pinned near the bottom. */
-  footer?: React.ReactNode;
+  title:      string;
+  subtitle?:  string;
+  showBack?:  boolean;
+  children:   React.ReactNode;
+  /** Rendered in a sticky area below the form, always visible. */
+  footer?:    React.ReactNode;
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -60,14 +51,18 @@ export function AuthScreenWrapper({
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
     >
+      {/* Scrollable form area */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop:    Math.max(insets.top + theme.spacing.lg, theme.spacing.xxl),
-            paddingBottom: Math.max(insets.bottom + theme.spacing.lg, theme.spacing.xxl),
+            paddingTop: Math.max(
+              insets.top + theme.spacing.lg,
+              theme.spacing.xxl
+            ),
           },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -90,7 +85,7 @@ export function AuthScreenWrapper({
           </Pressable>
         )}
 
-        {/* Brand wordmark area */}
+        {/* Brand wordmark */}
         <View style={styles.brand}>
           <Body
             color={theme.colors.brand.primary}
@@ -104,18 +99,30 @@ export function AuthScreenWrapper({
         <View style={styles.header}>
           <H2 style={styles.title}>{title}</H2>
           {subtitle ? (
-            <Body color={theme.colors.text.secondary} style={styles.subtitle}>
-              {subtitle}
-            </Body>
+            <Body color={theme.colors.text.secondary}>{subtitle}</Body>
           ) : null}
         </View>
 
-        {/* Form content */}
-        <View style={styles.form}>{children}</View>
-
-        {/* Footer links / secondary actions */}
-        {footer ? <View style={styles.footer}>{footer}</View> : null}
+        {/* Form fields */}
+        {children}
       </ScrollView>
+
+      {/* ── Sticky footer — always visible, never scrolls away ── */}
+      {footer ? (
+        <View
+          style={[
+            styles.footer,
+            {
+              paddingBottom: Math.max(
+                insets.bottom + theme.spacing.sm,
+                theme.spacing.xl
+              ),
+            },
+          ]}
+        >
+          {footer}
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -132,14 +139,15 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: theme.layout.screenPaddingHorizontal,
-    flexGrow: 1,
+    // Bottom padding ensures last field isn't hidden behind footer.
+    paddingBottom: theme.spacing['4xl'],
   },
   backButton: {
-    alignSelf:    'flex-start',
-    marginBottom: theme.spacing.lg,
-    minWidth:     theme.layout.touchTargetMin,
-    minHeight:    theme.layout.touchTargetMin,
-    alignItems:   'center',
+    alignSelf:      'flex-start',
+    marginBottom:   theme.spacing.lg,
+    minWidth:       theme.layout.touchTargetMin,
+    minHeight:      theme.layout.touchTargetMin,
+    alignItems:     'center',
     justifyContent: 'center',
   },
   brand: {
@@ -152,19 +160,17 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: theme.spacing.xxl,
+    gap:          theme.spacing.xs,
   },
   title: {
-    marginBottom: theme.spacing.xs,
-  },
-  subtitle: {
-    lineHeight: theme.typography.lineHeights.body,
-  },
-  form: {
-    flex: 1,
+    marginBottom: 0,
   },
   footer: {
-    marginTop: theme.spacing.xl,
-    alignItems: 'center',
-    gap: theme.spacing.sm,
+    paddingHorizontal: theme.layout.screenPaddingHorizontal,
+    paddingTop:        theme.spacing.md,
+    borderTopWidth:    theme.borders.width,
+    borderTopColor:    theme.colors.neutral.border,
+    backgroundColor:   theme.colors.neutral.background,
+    gap:               theme.spacing.sm,
   },
 });

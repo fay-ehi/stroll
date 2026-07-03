@@ -88,16 +88,26 @@ export default function ForgotPasswordScreen() {
       subtitle="Enter your email and we'll send you a link to reset your password."
       showBack
       footer={
-        <Pressable
-          onPress={() => router.replace(ROUTES.auth.logIn as never)}
-          accessibilityRole="button"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <BodySmall color={theme.colors.text.secondary}>
-            Remember your password?{' '}
-            <BodySmall color={theme.colors.brand.primary}>Sign in</BodySmall>
-          </BodySmall>
-        </Pressable>
+        <>
+          <Button
+            label="Send reset link"
+            variant="primary"
+            fullWidth
+            loading={loading}
+            onPress={handleSubmit}
+          />
+
+          <Pressable
+            onPress={() => router.replace(ROUTES.auth.logIn as never)}
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <BodySmall color={theme.colors.text.secondary}>
+              Remember your password?{' '}
+              <BodySmall color={theme.colors.brand.primary}>Sign in</BodySmall>
+            </BodySmall>
+          </Pressable>
+        </>
       }
     >
       <AuthFormField
@@ -114,15 +124,6 @@ export default function ForgotPasswordScreen() {
         textContentType="emailAddress"
         keyboardType="email-address"
         returnKeyType="done"
-      />
-
-      <Button
-        label="Send reset link"
-        variant="primary"
-        fullWidth
-        loading={loading}
-        onPress={handleSubmit}
-        style={styles.submitButton}
       />
     </AuthScreenWrapper>
   );

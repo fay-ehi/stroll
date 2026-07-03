@@ -164,12 +164,15 @@ export function Button({
   loading = false,
   disabled = false,
   accessibilityLabel,
-  style,
+ style,
+  onPressIn,
+  onPressOut,
   ...pressableProps
 }: ButtonProps) {
   const variantStyle = getVariantStyle(variant);
   const sizing = SIZE_MAP[size];
   const isInteractionDisabled = disabled || loading;
+  const [isPressed, setIsPressed] = React.useState(false);
 
   return (
     <Pressable
@@ -181,19 +184,27 @@ export function Button({
       // expands the tappable area without affecting visual size. md/lg
       // already meet the minimum, so no expansion is needed there.
       hitSlop={sizing.height < theme.layout.touchTargetMin ? computeHitSlop(sizing.height) : undefined}
-      style={({ pressed }) => [
+onPressIn={(e) => {
+        setIsPressed(true);
+        onPressIn?.(e);
+      }}
+      onPressOut={(e) => {
+        setIsPressed(false);
+        onPressOut?.(e);
+      }}
+      style={[
         styles.base,
         {
           height:            sizing.height,
           paddingHorizontal: sizing.paddingHorizontal,
           backgroundColor:   isInteractionDisabled
             ? variantStyle.disabledBackground
-            : pressed
+            : isPressed
               ? variantStyle.pressedBackground
               : variantStyle.background,
           borderRadius: theme.radius.button,
           width: fullWidth ? '100%' : undefined,
-          opacity: variant === 'destructive' && pressed && !isInteractionDisabled ? 0.85 : 1,
+          opacity: variant === 'destructive' && isPressed && !isInteractionDisabled ? 0.85 : 1,
         },
         variantStyle.border
           ? {

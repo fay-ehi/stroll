@@ -2,20 +2,8 @@
  * Stroll — Root Layout
  * app/_layout.tsx
  *
- * Sprint 1 update: adds AuthProvider wrapping the Stack.
- * AuthProvider initializes the Supabase session and starts the auth
- * state listener before any screen renders.
- *
- * Provider order (outermost → innermost):
- *   GestureHandlerRootView
- *   ErrorBoundary
- *   QueryClientProvider
- *   SafeAreaProvider
- *   ToastProvider
- *   AuthProvider          ← Sprint 1 addition
- *     StatusBar
- *     View
- *     Stack
+ * Sprint 1 Prompt 2 update: adds (onboarding) as a declared Stack.Screen
+ * so expo-router knows about the group. No other changes.
  */
 
 import { useEffect } from 'react';
@@ -93,6 +81,7 @@ export default function RootLayout() {
                     <Stack.Screen name="index" />
                     <Stack.Screen name="(auth)" />
                     <Stack.Screen name="(app)" />
+                    <Stack.Screen name="(onboarding)" />
                     <Stack.Screen
                       name="(modals)"
                       options={{ presentation: 'modal' }}
