@@ -16,6 +16,7 @@ import { useCallback, useState } from 'react';
 import { useAuthStore, selectIsAuthenticated, selectUser } from '@/stores/authStore';
 import { showToast } from '@/stores/toastStore';
 import { VALIDATION } from '@/utils';
+import { checkUsernameAvailable } from '@/services/profileService';
 import type { StrollError } from '@/lib/errors';
 
 // ─── useAuthState ──────────────────────────────────────────────────────────────
@@ -96,6 +97,17 @@ export interface SignUpFormErrors {
   password?:    string;
 }
 
+export interface SignUpSubmitResult {
+  ok: boolean;
+  requiresConfirmation?: boolean;
+  /**
+   * Set when the failure is attributable to a specific field (taken
+   * username, already-registered email) so the screen can show it right
+   * under that field instead of — or in addition to — a toast.
+   */
+  fieldErrors?: SignUpFormErrors;
+}
+
 export function useSignUp() {
   const signUp    = useAuthStore((s) => s.signUp);
   const [loading, setLoading] = useState(false);
@@ -121,19 +133,39 @@ export function useSignUp() {
   }, []);
 
   const submit = useCallback(
-    async (
-      values: SignUpFormValues
-    ): Promise<{ ok: boolean; requiresConfirmation?: boolean }> => {
+    async (values: SignUpFormValues): Promise<SignUpSubmitResult> => {
       setLoading(true);
       try {
+        const username = values.username.trim().toLowerCase();
+
+        // Sprint 1 Prompt 4 fix: this is the actual fix for "picked a taken
+        // username, got stuck in onboarding with no way back". Username is
+        // collected here at sign-up, but the profiles row (where the unique
+        // constraint lives) isn't created until the onboarding interests
+        // step — so without this check, a taken username sailed straight
+        // through account creation and only surfaced as a failure several
+        // screens later, on a step with no way to change it. Checking here,
+        // before the Supabase Auth account is even created, means a taken
+        // username never gets this far.
+        const availability = await checkUsernameAvailable(username);
+        if (availability.ok && !availability.data) {
+          return {
+            ok: false,
+            fieldErrors: { username: 'This username is already taken. Please choose another.' },
+          };
+        }
+
         const result = await signUp({
           email:       values.email.trim().toLowerCase(),
           password:    values.password,
           displayName: values.displayName.trim(),
-          username:    values.username.trim().toLowerCase(),
+          username,
         });
 
         if (!result.ok && result.error) {
+          if (result.error.code === 'EMAIL_ALREADY_REGISTERED') {
+            return { ok: false, fieldErrors: { email: result.error.userMessage } };
+          }
           showToast({ type: 'error', message: result.error.userMessage });
           return { ok: false };
         }

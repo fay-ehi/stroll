@@ -35,6 +35,12 @@ export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'SERVER_ERROR'
   | 'TIMEOUT'
+  | 'EMAIL_ALREADY_REGISTERED'
+  | 'USERNAME_TAKEN'
+  | 'INVALID_CREDENTIALS'
+  | 'EMAIL_NOT_CONFIRMED'
+  | 'RATE_LIMITED'
+  | 'WEAK_PASSWORD'
   | 'UNKNOWN';
 
 export interface StrollError {
@@ -63,6 +69,21 @@ const USER_MESSAGES: Record<ErrorCode, string> = {
   VALIDATION_ERROR: 'Please check your information and try again.',
   SERVER_ERROR:     "Something went wrong on our end. Please try again shortly.",
   TIMEOUT:          'This is taking longer than expected. Please try again.',
+  // Sprint 1 Prompt 4 fix: these six used to all fall through to the generic
+  // status-code mapping below (mostly landing on VALIDATION_ERROR or UNKNOWN),
+  // which is exactly the "an error occurred" vagueness this fix addresses.
+  EMAIL_ALREADY_REGISTERED: 'An account with this email already exists. Try signing in instead.',
+  USERNAME_TAKEN:           'This username is already taken. Please choose another.',
+  // Deliberately doesn't say which of email/password is wrong — Supabase's
+  // API doesn't distinguish "wrong password" from "no account with this
+  // email" either, by design, to prevent attackers from using the login
+  // form to discover which emails have accounts (user enumeration). See
+  // this fix's write-up for the tradeoff and how to change it if you'd
+  // rather prioritize UX over that protection.
+  INVALID_CREDENTIALS:      'Incorrect email or password. Please try again.',
+  EMAIL_NOT_CONFIRMED:      'Please confirm your email before signing in — check your inbox for the link.',
+  RATE_LIMITED:             'Too many attempts. Please wait a moment and try again.',
+  WEAK_PASSWORD:            'Please choose a stronger password.',
   UNKNOWN:          "We couldn't load this right now. Please try again.",
 };
 
@@ -72,6 +93,26 @@ const RETRYABLE_CODES: ErrorCode[] = [
   'TIMEOUT',
   'UNKNOWN',
 ];
+
+// ─── Supabase Auth Error Codes ─────────────────────────────────────────────────
+// Supabase Auth error codes are the *machine-readable* `code` property, not
+// the human-readable `message` (which can change across versions) — this is
+// what Supabase's own docs recommend keying off. See:
+// https://supabase.com/docs/guides/auth/debugging/error-codes
+// Only mapped here in authService/profileService call sites where we KNOW
+// we're looking at an auth error, so this stays out of the generic
+// Postgrest error path below.
+
+const AUTH_ERROR_CODE_MAP: Partial<Record<string, ErrorCode>> = {
+  user_already_exists:        'EMAIL_ALREADY_REGISTERED',
+  email_exists:                'EMAIL_ALREADY_REGISTERED',
+  invalid_credentials:         'INVALID_CREDENTIALS',
+  email_not_confirmed:         'EMAIL_NOT_CONFIRMED',
+  weak_password:               'WEAK_PASSWORD',
+  over_email_send_rate_limit:  'RATE_LIMITED',
+  over_request_rate_limit:     'RATE_LIMITED',
+  over_sms_send_rate_limit:    'RATE_LIMITED',
+};
 
 // ─── Supabase Error Shape ──────────────────────────────────────────────────────
 
@@ -121,7 +162,14 @@ export function normalizeError(err: unknown): StrollError {
 
   // Supabase errors (PostgrestError, AuthError — both have message + status).
   if (isSupabaseError(err)) {
-    const code = httpStatusToCode((err as { status?: number }).status);
+    // Check for a known Supabase Auth error code first — these need a much
+    // more specific message than the generic HTTP-status mapping below can
+    // give (e.g. status 400 alone can't tell "wrong password" apart from
+    // "malformed request").
+    const authCode = err.code ? AUTH_ERROR_CODE_MAP[err.code] : undefined;
+    if (authCode) return makeError(authCode, err.message, err);
+
+    const code = httpStatusToCode(err.status);
     return makeError(code, err.message, err);
   }
 
@@ -134,7 +182,7 @@ export function normalizeError(err: unknown): StrollError {
   return makeError('UNKNOWN', String(err), err);
 }
 
-function makeError(
+export function makeError(
   code: ErrorCode,
   devMessage: string,
   originalError?: unknown

@@ -12,7 +12,7 @@ import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { STROLL_FONTS } from '@/theme/fonts';
@@ -21,22 +21,16 @@ import { ErrorBoundary } from '@/components/shell/ErrorBoundary';
 import { ToastProvider } from '@/components/toast/ToastProvider';
 import { AuthProvider } from '@/components/shell/AuthProvider';
 import { TIMEOUTS } from '@/constants/app';
+// Sprint 1 Prompt 3 fix: this file previously constructed its own local
+// QueryClient, separate from the shared singleton in `@/lib/queryClient`.
+// Any code calling `queryClient.invalidateQueries(...)` or `.setQueryData(...)`
+// from outside a component (e.g. profileService, onboardingStore) needs the
+// SAME instance that <QueryClientProvider> uses, or its writes silently do
+// nothing. Importing the shared singleton here fixes that and removes the
+// duplicate configuration.
+import { queryClient } from '@/lib/queryClient';
 
 SplashScreen.preventAutoHideAsync();
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime:            30_000,
-      gcTime:               5 * 60 * 1000,
-      retry:                2,
-      refetchOnWindowFocus: false,
-    },
-    mutations: {
-      retry: 0,
-    },
-  },
-});
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(STROLL_FONTS);

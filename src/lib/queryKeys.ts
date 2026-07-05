@@ -48,10 +48,29 @@ export const queryKeys = {
                               ['experiences', 'by-collection', collectionId] as const,
   },
   // ── Places ──────────────────────────────────────────────────────────────────
+  // `all`, `detail`, `search` predate this addition (Sprint 0 scaffold).
+  // Sprint 1 Prompt 4 adds featured/nearby/byCity/byCategory for the new
+  // Places domain hooks. `category` param is kept as plain `string` (not
+  // the domain's PlaceCategoryId type) so this file — otherwise entirely
+  // dependency-free — doesn't have to import from the types layer just for
+  // a cache-key label; callers already have the properly-typed value.
   places: {
-    all:    ()                    => ['places'] as const,
-    detail: (id: string)          => ['places', 'detail', id] as const,
-    search: (query: string)       => ['places', 'search', query] as const,
+    all:      ()                    => ['places'] as const,
+    detail:   (id: string)          => ['places', 'detail', id] as const,
+    search:   (query: string)       => ['places', 'search', query] as const,
+    featured: (city?: string)       => ['places', 'featured', city ?? 'all'] as const,
+    byCity:   (city: string, category?: string) =>
+                                ['places', 'by-city', city, category ?? 'all'] as const,
+    byCategory: (category: string, city?: string) =>
+                                ['places', 'by-category', category, city ?? 'all'] as const,
+    /**
+     * Rounded to ~1km precision (2 decimal places) so repeat calls from
+     * roughly the same spot — normal GPS jitter, or re-opening the same
+     * screen — reuse the cached result instead of fragmenting the cache
+     * with a new key for every fractional coordinate change.
+     */
+    nearby: (lat: number, lng: number, radiusKm: number, category?: string) =>
+      ['places', 'nearby', Math.round(lat * 100) / 100, Math.round(lng * 100) / 100, radiusKm, category ?? 'all'] as const,
   },
 
   // ── Collections ─────────────────────────────────────────────────────────────

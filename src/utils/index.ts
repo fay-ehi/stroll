@@ -183,6 +183,46 @@ export const VALIDATION = {
   isValidDisplayName(name: string): boolean {
     return name.trim().length >= 1 && name.trim().length <= 50;
   },
+
+  /**
+   * Bio: optional, up to PROFILE_LIMITS.MAX_BIO_LENGTH characters.
+   * An empty/undefined bio is always valid — bio is not required.
+   */
+  isValidBio(bio: string | null | undefined, maxLength: number): boolean {
+    if (!bio) return true;
+    return bio.length <= maxLength;
+  },
+
+  /**
+   * City: must be one of the app's supported cities (or empty/undefined —
+   * city is not required to update a profile, only to complete onboarding).
+   */
+  isValidCity(city: string | null | undefined, availableCities: readonly string[]): boolean {
+    if (!city) return true;
+    return availableCities.includes(city);
+  },
+
+  /**
+   * Interests: when provided, must be within the min/max selection count
+   * allowed for onboarding/profile interest tags.
+   */
+  isValidInterests(interests: string[], min: number, max: number): boolean {
+    return interests.length >= min && interests.length <= max;
+  },
+
+  /**
+   * Avatar MIME type: must be one of the app's accepted image types.
+   */
+  isValidAvatarMimeType(mimeType: string, acceptedTypes: readonly string[]): boolean {
+    return acceptedTypes.includes(mimeType);
+  },
+
+  /**
+   * Avatar file size: must not exceed the configured maximum, in bytes.
+   */
+  isValidAvatarFileSize(sizeBytes: number, maxBytes: number): boolean {
+    return sizeBytes > 0 && sizeBytes <= maxBytes;
+  },
 } as const;
 
 // ─── Platform Utilities ────────────────────────────────────────────────────────

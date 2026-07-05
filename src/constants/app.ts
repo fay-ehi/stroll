@@ -125,6 +125,26 @@ export const VIBE_TAGS = [
 
 export type VibeTag = typeof VIBE_TAGS[number];
 
+// ─── Profile Limits (Sprint 1 Prompt 3) ───────────────────────────────────────
+// The PRD/Design System don't specify a bio character limit, so 150 is used
+// as a deliberate product decision — short enough to keep profiles scannable
+// (Design Philosophy §13 "Maximum Content Width"), matching the common social
+// app convention. Display name and username bounds already live in
+// utils/VALIDATION (isValidDisplayName, isValidUsername) — not duplicated here.
+
+export const PROFILE_LIMITS = {
+  /** Maximum characters in a profile bio. */
+  MAX_BIO_LENGTH: 150,
+  /**
+   * Maximum characters in a display name — mirrors the bound already
+   * enforced by VALIDATION.isValidDisplayName (utils/index.ts). Exported
+   * here purely so UI components (e.g. a TextInput's `maxLength`) have a
+   * named value instead of a bare "50", without changing that validator's
+   * signature (it's also used by the sign-up form in useAuth.ts).
+   */
+  MAX_DISPLAY_NAME_LENGTH: 50,
+} as const;
+
 // ─── Collection Limits ─────────────────────────────────────────────────────────
 
 export const COLLECTION_LIMITS = {

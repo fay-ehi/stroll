@@ -5,10 +5,16 @@
  * Exposes:
  *   useOnboardingGuard  — determines whether onboarding should be shown
  *   useUsernameCheck    — debounced username availability checking
- *   useProfileLoader    — loads existing profile on mount
+ *
+ * Sprint 1 Prompt 3 note: this file used to also export `useProfileLoader`,
+ * a raw (non-cached) profile fetch used for screens that "need existing
+ * profile data". It had no consumers yet and is now superseded by
+ * `useProfile()` in `@/hooks/useProfile` — the profile domain's single
+ * source of truth, backed by TanStack Query caching/retry/invalidation.
+ * Use that instead on any new screen.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 import { getProfile, checkUsernameAvailable } from '@/services/profileService';
@@ -146,43 +152,4 @@ export function useUsernameCheck(username: string): {
   }, [debounced]);
 
   return { state, message };
-}
-
-// ─── useProfileLoader ─────────────────────────────────────────────────────────
-
-/**
- * Loads the current user's profile from Supabase.
- * Used on screens that need existing profile data (e.g. Edit Profile).
- */
-export function useProfileLoader(): {
-  profile: Profile | null;
-  loading: boolean;
-  reload:  () => void;
-} {
-  const user    = useAuthStore((s) => s.user);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [tick,    setTick]    = useState(0);
-
-  const reload = useCallback(() => setTick((n) => n + 1), []);
-
-  useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-
-    getProfile(user.id).then((result) => {
-      if (cancelled) return;
-      if (result.ok) setProfile(result.data);
-      setLoading(false);
-    });
-
-    return () => { cancelled = true; };
-  }, [user, tick]);
-
-  return { profile, loading, reload };
 }

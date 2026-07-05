@@ -4,6 +4,13 @@
  *
  * Fix: Submit button moved into the `footer` prop so it is pinned
  * outside the ScrollView and always visible above the keyboard.
+ *
+ * Sprint 1 Prompt 4 fix: added live username availability checking
+ * (reuses the existing useUsernameCheck hook from the onboarding domain)
+ * and field-specific error handling for taken usernames / already-
+ * registered emails, so both are caught here — before an account is
+ * even created — instead of surfacing several screens later in
+ * onboarding with no way to go back and change them.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -17,6 +24,7 @@ import {
   type SignUpFormValues,
   type SignUpFormErrors,
 } from '@/hooks/useAuth';
+import { useUsernameCheck } from '@/hooks/useOnboarding';
 import { ROUTES } from '@/constants/routes';
 import { theme } from '@/theme';
 import { User, AtSign, Mail, Lock } from 'lucide-react-native';
@@ -37,6 +45,10 @@ export default function SignUpScreen() {
     Partial<Record<keyof SignUpFormValues, boolean>>
   >({});
   const [done, setDone] = useState(false);
+
+  // Live "is this username available" feedback while typing — the same
+  // debounced hook the onboarding username flow already relies on.
+  const usernameCheck = useUsernameCheck(values.username);
 
   const setValue = useCallback(
     (field: keyof SignUpFormValues) => (text: string) => {
@@ -63,6 +75,14 @@ export default function SignUpScreen() {
     setErrors(formErrors);
     if (Object.values(formErrors).some(Boolean)) return;
 
+    // Don't let a submit slip through while the live check still shows the
+    // username as taken — the pre-submit check in useSignUp would catch it
+    // anyway, but failing fast here avoids an unnecessary round trip.
+    if (usernameCheck.state === 'taken') {
+      setErrors((prev) => ({ ...prev, username: usernameCheck.message }));
+      return;
+    }
+
     const result = await submit(values);
     if (result.ok) {
       if (result.requiresConfirmation) {
@@ -70,8 +90,31 @@ export default function SignUpScreen() {
       } else {
         router.replace(ROUTES.tabs.discover as never);
       }
+    } else if (result.fieldErrors) {
+      setErrors((prev) => ({ ...prev, ...result.fieldErrors }));
+      setTouched((prev) => ({
+        ...prev,
+        ...Object.fromEntries(Object.keys(result.fieldErrors!).map((key) => [key, true])),
+      }));
     }
-  }, [validate, values, submit]);
+  }, [validate, values, submit, usernameCheck.state, usernameCheck.message]);
+
+  // Username field's helper/error text: local sync validation (format)
+  // takes priority once the field has been touched; otherwise fall back
+  // to the live availability check's state while the user is still typing.
+  const usernameErrorText = touched.username && errors.username
+    ? errors.username
+    : usernameCheck.state === 'taken'
+      ? usernameCheck.message
+      : undefined;
+
+  const usernameHelperText = usernameErrorText
+    ? undefined
+    : usernameCheck.state === 'checking'
+      ? 'Checking availability…'
+      : usernameCheck.state === 'available'
+        ? usernameCheck.message
+        : undefined;
 
   // ── "Check your email" confirmation state ────────────────────────────────
   if (done) {
@@ -143,7 +186,8 @@ export default function SignUpScreen() {
         value={values.username}
         onChangeText={(t) => setValue('username')(t.toLowerCase())}
         onBlur={handleBlur('username')}
-        errorText={touched.username ? errors.username : undefined}
+        errorText={usernameErrorText}
+        helperText={usernameHelperText}
         autoCapitalize="none"
         autoCorrect={false}
         autoComplete="username-new"

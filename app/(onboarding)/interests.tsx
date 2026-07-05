@@ -31,6 +31,7 @@ export default function OnboardingInterestsScreen() {
     goToPrevStep,
     submitProfile,
     submitting,
+    error,
   } = useOnboardingStore();
 
   const toggleInterest = useCallback(
@@ -63,13 +64,23 @@ export default function OnboardingInterestsScreen() {
 
     const ok = await submitProfile(user.id, username, displayName);
     if (!ok) {
-      showToast({ type: 'error', message: 'Could not save your profile. Please try again.' });
+      // Sprint 1 Prompt 4 fix: show the actual error instead of a hardcoded
+      // generic message. In practice this should now be rare — sign-up
+      // checks username availability before an account is even created —
+      // but if it ever does happen (e.g. a genuine race between two people
+      // signing up with the same username seconds apart), the person needs
+      // to know specifically what went wrong rather than a vague "try
+      // again" that would just fail identically forever.
+      showToast({
+        type: 'error',
+        message: error?.userMessage ?? 'Could not save your profile. Please try again.',
+      });
       return;
     }
 
     goToNextStep();
     router.push('/(onboarding)/avatar');
-  }, [data.interests, user, submitProfile, goToNextStep]);
+  }, [data.interests, user, submitProfile, goToNextStep, error]);
 
   const remaining = ONBOARDING_RULES.MIN_INTERESTS - data.interests.length;
 

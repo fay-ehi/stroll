@@ -14,7 +14,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
-import { normalizeError, type StrollError } from '@/lib/errors';
+import { normalizeError, makeError, type StrollError } from '@/lib/errors';
 import type { User, Session } from '@supabase/supabase-js';
 
 // ─── Result Type ───────────────────────────────────────────────────────────────
@@ -63,6 +63,22 @@ export async function signUp(
     });
 
     if (error) return fail(error);
+
+    // Sprint 1 Prompt 4 fix: when "Confirm email" is enabled, Supabase
+    // intentionally returns a 200 with `error: null` — NOT an error — when
+    // signing up with an email that's already registered AND confirmed.
+    // This is by design, to avoid leaking which emails already have
+    // accounts (the same reasoning behind signIn's generic "invalid
+    // credentials" message). The only tell is an empty `identities` array
+    // on the returned user. Without this check, the caller believes a new
+    // account was created and shows "check your email" to someone who
+    // already has one.
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      return fail(makeError(
+        'EMAIL_ALREADY_REGISTERED',
+        'supabase.auth.signUp returned a user with an empty identities array — the email is already registered and confirmed.',
+      ));
+    }
 
     // When email confirmation is disabled, session is returned immediately.
     // When enabled, user exists but session is null — requiresConfirmation = true.

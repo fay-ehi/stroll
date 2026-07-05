@@ -24,6 +24,23 @@ import {
   ONBOARDING_STEPS,
   type OnboardingStep,
 } from '@/constants/onboarding';
+import { queryClient } from '@/lib/queryClient';
+import { queryKeys } from '@/lib/queryKeys';
+import { toProfileModel, type ProfileModel } from '@/types/profile';
+
+// Sprint 1 Prompt 3 note: onboarding predates the profile domain and still
+// talks to profileService directly (by design — see that file's header).
+// The three lines below each call `queryClient.setQueryData(...)` right
+// after onboarding successfully writes a profile change. This seeds the
+// SAME cache `useProfile()` reads from, so the first time a freshly
+// onboarded user opens the Profile tab it renders instantly from cache
+// instead of firing a redundant network request for data we already have.
+
+// ─── Cache Helper ──────────────────────────────────────────────────────────────
+
+function seedProfileCache(row: Profile): void {
+  queryClient.setQueryData<ProfileModel>(queryKeys.users.me(), toProfileModel(row));
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -164,6 +181,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
       }
 
       set({ profile: result.data });
+      seedProfileCache(result.data);
       return true;
     } finally {
       set({ submitting: false });
@@ -188,6 +206,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
       }
 
       set({ profile: result.data });
+      seedProfileCache(result.data);
       return true;
     } finally {
       set({ submitting: false });
@@ -224,6 +243,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
       }
 
       set({ profile: updateResult.data });
+      seedProfileCache(updateResult.data);
       return true;
     } finally {
       set({ submitting: false });
@@ -245,6 +265,13 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
 
       // Persist locally so the guard doesn't re-show onboarding on next launch.
       await storage.set(STORAGE_KEYS.onboardingComplete, true);
+
+      // completeOnboarding() only flips the flag server-side and returns
+      // void, so patch the cached model in place rather than refetching.
+      queryClient.setQueryData<ProfileModel>(queryKeys.users.me(), (old) =>
+        old ? { ...old, onboardingCompleted: true } : old
+      );
+
       return true;
     } finally {
       set({ submitting: false });

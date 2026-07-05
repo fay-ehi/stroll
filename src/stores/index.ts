@@ -27,3 +27,10 @@ export {
   useOnboardingStore,
   type OnboardingData,
 } from './onboardingStore';
+
+export {
+  useProfileStore,
+  selectIsAvatarUploading,
+  type AvatarUploadStage,
+  type ProfileDraft,
+} from './profileStore';

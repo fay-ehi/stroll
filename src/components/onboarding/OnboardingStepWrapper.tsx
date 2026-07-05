@@ -4,11 +4,21 @@
  *
  * Shared layout shell for every onboarding step.
  * Handles: safe area, scroll, progress bar, back button, title, subtitle,
- * skip link, and a sticky bottom action area.
+ * skip link, sticky bottom action area, and a sign-out safety net.
  *
  * Design Philosophy §28:
  *   "Onboarding should create excitement, not friction."
  *   "Get the user to Discover as quickly as possible."
+ *
+ * Sprint 1 Prompt 4 fix: added a small "Not you? Sign out" link, always
+ * present at the bottom of every step. Before this, `city` (the first
+ * step) had `showBack={false}` and no other way out — if anything ever
+ * went wrong before a person could reach a step with a back button (the
+ * reported case was a taken username failing profile creation on the
+ * *next* step, interests), there was no way to leave onboarding and start
+ * over. That specific case is now caught earlier (sign-up checks username
+ * availability before creating the account), but this link stays as a
+ * general safety net for any future failure mode, not just that one.
  */
 
 import React from 'react';
@@ -19,13 +29,15 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '@/theme';
-import { H3, Body, BodySmall, Icon } from '@/components/ui';
+import { H3, Body, BodySmall, Caption, Icon } from '@/components/ui';
 import { ArrowLeft } from 'lucide-react-native';
 import { OnboardingProgress } from './OnboardingProgress';
 import { ONBOARDING_STEPS, type OnboardingStep } from '@/constants/onboarding';
+import { useSignOut } from '@/hooks/useAuth';
 
 export interface OnboardingStepWrapperProps {
   step:         OnboardingStep;
@@ -56,6 +68,18 @@ export function OnboardingStepWrapper({
   const insets      = useSafeAreaInsets();
   const stepIndex   = ONBOARDING_STEPS.indexOf(step);
   const isFirstStep = stepIndex === 0;
+  const { signOut, loading: signingOut } = useSignOut();
+
+  const handleSignOutPress = () => {
+    Alert.alert(
+      'Sign out?',
+      "You'll need to sign in again to finish setting up your account.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign out', style: 'destructive', onPress: () => signOut() },
+      ]
+    );
+  };
 
   return (
     <KeyboardAvoidingView
@@ -129,6 +153,19 @@ export function OnboardingStepWrapper({
         ]}
       >
         {footer}
+
+        <Pressable
+          onPress={handleSignOutPress}
+          disabled={signingOut}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          style={styles.signOutLink}
+        >
+          <Caption align="center" color={theme.colors.text.tertiary}>
+            {signingOut ? 'Signing out…' : 'Not you? Sign out'}
+          </Caption>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
@@ -188,5 +225,8 @@ const styles = StyleSheet.create({
     borderTopColor:    theme.colors.neutral.border,
     backgroundColor:   theme.colors.neutral.background,
     gap:               theme.spacing.sm,
+  },
+  signOutLink: {
+    paddingVertical: theme.spacing.xxs,
   },
 });

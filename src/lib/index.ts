@@ -17,6 +17,7 @@ export { supabase, type Tables, type Enums } from './supabase';
 export { config, devLog, devWarn, type AppConfig, type AppEnvironment } from './config';
 export {
   normalizeError,
+  makeError,
   logError,
   isStrollError,
   isNetworkError,

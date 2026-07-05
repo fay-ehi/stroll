@@ -12,9 +12,15 @@
  * but is requested in this sprint's scope and is a common Creator/Profile
  * pattern (§27 Creator Card references "Followers", profile-adjacent surfaces).
  * Implemented using semantic success color, sized proportionally to the avatar.
+ *
+ * Sprint 1 Prompt 4 fix: `imageFailed` used to only ever be set to `true` via
+ * `onError`, with nothing to reset it — so once an image failed to load on a
+ * given Avatar instance, that instance showed initials forever, even after
+ * being re-rendered with a new, perfectly valid `source` (e.g. right after
+ * uploading a new avatar). Now resets whenever the source itself changes.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Image, StyleSheet, type ImageSourcePropType } from 'react-native';
 import { theme } from '@/theme';
 import { Caption, BodySmall, Body } from './Typography';
@@ -82,6 +88,22 @@ function getInitialsBackground(name?: string): string {
   return INITIALS_BACKGROUNDS[hash % INITIALS_BACKGROUNDS.length]!;
 }
 
+/**
+ * Extracts a stable, comparable key from an ImageSourcePropType so the
+ * failed-state effect below can tell "the same source, still failing" apart
+ * from "a genuinely new source, worth trying again". Handles the shapes
+ * this component is ever actually given: a `{ uri }` object, undefined, or
+ * (defensively) a local require() number/array.
+ */
+function getSourceKey(source?: ImageSourcePropType): string | number | undefined {
+  if (!source) return undefined;
+  if (typeof source === 'number') return source;
+  if (Array.isArray(source)) {
+    return source.map((s) => (typeof s === 'object' && s && 'uri' in s ? s.uri : '')).join('|');
+  }
+  return 'uri' in source ? source.uri : undefined;
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export function Avatar({
@@ -94,6 +116,14 @@ export function Avatar({
   const [imageFailed, setImageFailed] = useState(false);
   const { diameter, indicatorSize, indicatorBorderWidth, textComponent: TextComponent } = SIZE_MAP[size];
   const showImage = source && !imageFailed;
+
+  // Keyed on the derived source identity (a primitive), not the `source`
+  // prop itself — that's a new object reference on every render even when
+  // it's the same URI, which would reset imageFailed on every keystroke of
+  // an unrelated state update elsewhere in the tree.
+  useEffect(() => {
+    setImageFailed(false);
+  }, [getSourceKey(source)]);
 
   return (
     <View
