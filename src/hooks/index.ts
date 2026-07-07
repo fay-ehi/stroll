@@ -12,12 +12,7 @@
  * - Every hook is documented with its use case
  */
 
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   AppState,
   Keyboard,
@@ -93,9 +88,7 @@ export function useAppState(options: UseAppStateOptions = {}): {
   appState: AppStateStatus;
   isActive: boolean;
 } {
-  const [appState, setAppState] = useState<AppStateStatus>(
-    AppState.currentState
-  );
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const { onForeground, onBackground } = options;
 
   useEffect(() => {
@@ -132,24 +125,24 @@ export function useAppState(options: UseAppStateOptions = {}): {
  *   if (!isConnected) return <OfflineBanner />;
  */
 interface NetworkStatus {
-  isConnected:        boolean;
+  isConnected: boolean;
   isInternetReachable: boolean;
-  connectionType:     string | null;
+  connectionType: string | null;
 }
 
 export function useNetworkStatus(): NetworkStatus {
   const [status, setStatus] = useState<NetworkStatus>({
-    isConnected:         true,
+    isConnected: true,
     isInternetReachable: true,
-    connectionType:      null,
+    connectionType: null,
   });
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
       setStatus({
-        isConnected:         state.isConnected ?? true,
+        isConnected: state.isConnected ?? true,
         isInternetReachable: state.isInternetReachable ?? true,
-        connectionType:      state.type,
+        connectionType: state.type,
       });
     });
 
@@ -171,13 +164,13 @@ export function useNetworkStatus(): NetworkStatus {
  */
 interface KeyboardState {
   isKeyboardVisible: boolean;
-  keyboardHeight:    number;
+  keyboardHeight: number;
 }
 
 export function useKeyboard(): KeyboardState {
   const [state, setState] = useState<KeyboardState>({
     isKeyboardVisible: false,
-    keyboardHeight:    0,
+    keyboardHeight: 0,
   });
 
   useEffect(() => {
@@ -188,7 +181,7 @@ export function useKeyboard(): KeyboardState {
     const onShow = (e: KeyboardEvent) => {
       setState({
         isKeyboardVisible: true,
-        keyboardHeight:    e.endCoordinates.height,
+        keyboardHeight: e.endCoordinates.height,
       });
     };
 
@@ -243,9 +236,7 @@ export function useTimeout(callback: (() => void) | null, delay: number | null):
  * Usage:
  *   const onPress = useStableCallback(() => doSomethingWith(latestState));
  */
-export function useStableCallback<T extends (...args: never[]) => unknown>(
-  fn: T
-): T {
+export function useStableCallback<T extends (...args: never[]) => unknown>(fn: T): T {
   const ref = useRef<T>(fn);
 
   useEffect(() => {
@@ -253,4 +244,36 @@ export function useStableCallback<T extends (...args: never[]) => unknown>(
   });
 
   return useCallback((...args: Parameters<T>) => ref.current(...args), []) as T;
+}
+
+// ─── useImageLoadFailed ─────────────────────────────────────────────────────────
+
+/**
+ * Tracks whether a remote image's most recent load attempt failed, so a
+ * component can fall back to a placeholder. Resets automatically when
+ * `source` changes to a genuinely new value — otherwise an image that
+ * failed once would show its fallback forever, even after being
+ * re-rendered with a new, perfectly valid source (e.g. a recycled list
+ * item scrolling to a different row, or a freshly uploaded photo
+ * replacing a broken one).
+ *
+ * Extracted from what was previously near-identical inline state in both
+ * Avatar.tsx and PlaceImage.tsx (Sprint 1 Prompt 4) — this sprint's
+ * ExperienceCard needs the exact same behavior for its cover image, and a
+ * third copy-pasted `useState` + `useEffect` pair would be the "duplicated
+ * logic" this codebase's architecture rules explicitly call out to avoid.
+ *
+ * Usage:
+ *   const [failed, markFailed] = useImageLoadFailed(uri);
+ *   <Image source={{ uri }} onError={markFailed} />
+ *   {failed || !uri ? <Fallback /> : null}
+ */
+export function useImageLoadFailed(source: string | null | undefined): [boolean, () => void] {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [source]);
+
+  return [failed, useCallback(() => setFailed(true), [])];
 }

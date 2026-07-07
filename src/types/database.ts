@@ -45,13 +45,7 @@
  *     hand-declare it as an `interface` there either.
  */
 
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface Database {
   public: {
@@ -167,6 +161,91 @@ export interface Database {
           provider_place_id?: string | null;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      // Sprint 2 Prompt 1 addition — concrete `experiences` and
+      // `experience_photos` entries. Same reasoning as `places` above:
+      // written as inline object literals (never `interface`) so they
+      // keep satisfying the `[key: string]` fallback below.
+      // See supabase/migrations/0002_experiences.sql for the schema this
+      // mirrors, and src/types/experience.ts for the camelCase domain
+      // model built on top of it.
+      experiences: {
+        Row: {
+          id: string;
+          user_id: string;
+          place_id: string;
+          city: string;
+          story: string;
+          would_recommend: boolean | null;
+          amount_spent: string | null;
+          visit_type: string | null;
+          good_for_tags: string[];
+          vibe_tags: string[];
+          like_count: number;
+          comment_count: number;
+          featured: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          place_id: string;
+          city: string;
+          story: string;
+          would_recommend?: boolean | null;
+          amount_spent?: string | null;
+          visit_type?: string | null;
+          good_for_tags?: string[];
+          vibe_tags?: string[];
+          like_count?: number;
+          comment_count?: number;
+          featured?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          place_id?: string;
+          city?: string;
+          story?: string;
+          would_recommend?: boolean | null;
+          amount_spent?: string | null;
+          visit_type?: string | null;
+          good_for_tags?: string[];
+          vibe_tags?: string[];
+          like_count?: number;
+          comment_count?: number;
+          featured?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      experience_photos: {
+        Row: {
+          id: string;
+          experience_id: string;
+          photo_url: string;
+          position: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          experience_id: string;
+          photo_url: string;
+          position?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          experience_id?: string;
+          photo_url?: string;
+          position?: number;
+          created_at?: string;
         };
         Relationships: [];
       };

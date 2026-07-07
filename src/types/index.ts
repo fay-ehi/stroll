@@ -1,8 +1,17 @@
 export type { Database, Json } from './database';
 export type {
-  User, Place, Experience, ExperiencePhoto, Collection,
-  PaginatedResponse, ApiError,
-  VisitType, AmountSpent, VibTag, GoodForTag, City,
+  User,
+  Place,
+  Experience,
+  ExperiencePhoto,
+  Collection,
+  PaginatedResponse,
+  ApiError,
+  VisitType,
+  AmountSpent,
+  VibTag,
+  GoodForTag,
+  City,
 } from './models';
 export {
   toProfileModel,
@@ -35,3 +44,20 @@ export {
   type PlacesByCategoryParams,
   type CoordinateValidationResult,
 } from './place';
+export {
+  toExperienceCardModel,
+  toExperienceModel,
+  isDiscoverSortMode,
+  type ExperienceCreatorRow,
+  type ExperiencePlaceRow,
+  type ExperiencePhotoRow,
+  type ExperienceFeedRow,
+  type ImagePreview,
+  type CreatorPreview,
+  type CategoryPreview,
+  type ExperienceCardModel,
+  type ExperienceModel,
+  type DiscoverSortMode,
+  type FeaturedExperiencesParams,
+  type DiscoverFeedParams,
+} from './experience';

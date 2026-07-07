@@ -20,13 +20,21 @@
  * is loading, before any URL exists at all). This component's own
  * "no image" state is a static placeholder, which is calmer for the very
  * common case of a place that simply doesn't have a photo yet.
+ *
+ * Sprint 2 Prompt 1: the failed-load-with-reset-on-uri-change state below
+ * used to be a local `useState` + `useEffect` pair here (and a near-
+ * identical one in Avatar.tsx). It's now the shared `useImageLoadFailed`
+ * hook (src/hooks/index.ts) — ExperienceCard's cover image needed the
+ * exact same behavior, and copy-pasting it a third time would be the
+ * "duplicated logic" this codebase's architecture rules call out.
  */
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { View, Image, StyleSheet, type ViewStyle } from 'react-native';
 import { MapPin } from 'lucide-react-native';
 import { theme } from '@/theme';
 import { Icon } from '@/components/ui';
+import { useImageLoadFailed } from '@/hooks';
 
 export interface PlaceImageProps {
   uri: string | null | undefined;
@@ -47,25 +55,11 @@ export function PlaceImage({
   borderRadius = theme.radius.card,
   style,
 }: PlaceImageProps) {
-  const [failed, setFailed] = useState(false);
+  const [failed, markFailed] = useImageLoadFailed(uri);
   const showImage = !!uri && !failed;
 
-  // Reset on a genuinely new uri — same reasoning as the Avatar component's
-  // Sprint 1 Prompt 4 fix: without this, a place whose photo failed to load
-  // once would show the fallback forever, even if re-rendered later with a
-  // different, valid uri (e.g. scrolling a recycled list item).
-  useEffect(() => {
-    setFailed(false);
-  }, [uri]);
-
   return (
-    <View
-      style={[
-        styles.container,
-        { aspectRatio, borderRadius },
-        style,
-      ]}
-    >
+    <View style={[styles.container, { aspectRatio, borderRadius }, style]}>
       {showImage ? (
         <Image
           source={{ uri }}
@@ -74,7 +68,7 @@ export function PlaceImage({
           accessible
           accessibilityRole="image"
           accessibilityLabel={accessibilityLabel}
-          onError={() => setFailed(true)}
+          onError={markFailed}
         />
       ) : (
         <View
@@ -92,14 +86,14 @@ export function PlaceImage({
 
 const styles = StyleSheet.create({
   container: {
-    width:           '100%',
-    overflow:        'hidden',
+    width: '100%',
+    overflow: 'hidden',
     backgroundColor: theme.colors.neutral.backgroundSecondary,
   },
   fallback: {
-    flex:            1,
-    alignItems:      'center',
-    justifyContent:  'center',
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: theme.colors.neutral.backgroundSecondary,
   },
 });
