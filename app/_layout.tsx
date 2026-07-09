@@ -12,7 +12,7 @@ import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { STROLL_FONTS } from '@/theme/fonts';
@@ -25,10 +25,17 @@ import { TIMEOUTS } from '@/constants/app';
 // QueryClient, separate from the shared singleton in `@/lib/queryClient`.
 // Any code calling `queryClient.invalidateQueries(...)` or `.setQueryData(...)`
 // from outside a component (e.g. profileService, onboardingStore) needs the
-// SAME instance that <QueryClientProvider> uses, or its writes silently do
+// SAME instance that <PersistQueryClientProvider> uses, or its writes silently do
 // nothing. Importing the shared singleton here fixes that and removes the
 // duplicate configuration.
 import { queryClient } from '@/lib/queryClient';
+// Sprint 2 Prompt 3 addition — offline persistence (Offline Experience
+// requirement #4). See queryPersister.ts for what gets persisted and why.
+import {
+  asyncStoragePersister,
+  shouldPersistQuery,
+  PERSIST_MAX_AGE_MS,
+} from '@/lib/queryPersister';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -37,10 +44,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      const timer = setTimeout(
-        () => SplashScreen.hideAsync(),
-        TIMEOUTS.SPLASH_MIN_MS
-      );
+      const timer = setTimeout(() => SplashScreen.hideAsync(), TIMEOUTS.SPLASH_MIN_MS);
       return () => clearTimeout(timer);
     }
     return undefined;
@@ -53,7 +57,14 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{
+            persister: asyncStoragePersister,
+            maxAge: PERSIST_MAX_AGE_MS,
+            dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
+          }}
+        >
           <SafeAreaProvider>
             <ToastProvider>
               <AuthProvider>
@@ -76,16 +87,13 @@ export default function RootLayout() {
                     <Stack.Screen name="(auth)" />
                     <Stack.Screen name="(app)" />
                     <Stack.Screen name="(onboarding)" />
-                    <Stack.Screen
-                      name="(modals)"
-                      options={{ presentation: 'modal' }}
-                    />
+                    <Stack.Screen name="(modals)" options={{ presentation: 'modal' }} />
                   </Stack>
                 </View>
               </AuthProvider>
             </ToastProvider>
           </SafeAreaProvider>
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
   );

@@ -54,6 +54,13 @@ export const queryKeys = {
 
     /** Single experience detail. */
     detail: (id: string) => ['experiences', 'detail', id] as const,
+    /** Related experiences shown on an experience's detail page (Sprint 2 Prompt 2) — keyed by the experience they're related to, not by category/city, since that's an implementation detail of how "related" is computed today. */
+    related: (experienceId: string) => ['experiences', 'related', experienceId] as const,
+    /** A creator's total experience count (Sprint 2 Prompt 2, Creator section). Deliberately its own key, not `byUser` — that one's reserved for a future "experiences authored by this user" *list*, a different query shape than this count. */
+    creatorExperienceCount: (userId: string) => ['experiences', 'creator-count', userId] as const,
+    /** "Continue Exploring" (Sprint 2 Prompt 3) — reuses fetchRelatedExperiences() under the hood (see useContinueExploring in useDiscoverFeed.ts), keyed by the category/city it's recommending from rather than a source experience id, since there's no single "source" here. */
+    recommended: (category: string, city: string) =>
+      ['experiences', 'recommended', category, city] as const,
     /** Experiences attached to a place. */
     byPlace: (placeId: string) => ['experiences', 'by-place', placeId] as const,
     /** Experiences authored by a specific user. */
@@ -92,6 +99,14 @@ export const queryKeys = {
         radiusKm,
         category ?? 'all',
       ] as const,
+  },
+
+  // ── Personalization (Sprint 2 Prompt 3) ─────────────────────────────────────
+  // Not server data — wraps a local AsyncStorage read (lib/recentlyViewed.ts)
+  // in TanStack Query purely for consistent loading-state/caching ergonomics
+  // with everything else in this app, not because it's a network request.
+  personalization: {
+    frequentCategories: () => ['personalization', 'frequent-categories'] as const,
   },
 
   // ── Collections ─────────────────────────────────────────────────────────────

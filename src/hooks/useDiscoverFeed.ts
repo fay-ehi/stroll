@@ -13,10 +13,22 @@
  *
  * Exposes:
  *   useFeaturedExperiences()  — the small curated Featured Carousel set.
- *   useInfiniteDiscoverFeed() — the paginated newest/trending feed.
- *   useDiscoverFeed()         — screen-level composition of both, plus a
- *                               combined pull-to-refresh — what the
- *                               Discover screen actually calls.
+ *   useInfiniteDiscoverFeed() — the paginated newest/trending feed, now
+ *                               personalized (Sprint 2 Prompt 3) — see
+ *                               that function's own doc for how.
+ *   useFrequentCategories()   — the user's most-viewed categories
+ *                               (lib/recentlyViewed.ts), wrapped in
+ *                               TanStack Query for consistent loading-
+ *                               state ergonomics with everything else.
+ *   useContinueExploring()    — the "Continue Exploring" recommendations
+ *                               rail (requirement #2). Reuses
+ *                               fetchRelatedExperiences() from Sprint 2
+ *                               Prompt 2 — same query shape, different
+ *                               seed category — rather than a parallel
+ *                               recommendation query.
+ *   useDiscoverFeed()         — screen-level composition of the above,
+ *                               plus a combined pull-to-refresh — what
+ *                               the Discover screen actually calls.
  *   useRefreshDiscoverFeed()  — standalone refresh, for reuse anywhere
  *                               else the feed appears without needing the
  *                               full useDiscoverFeed() bundle (mirrors
@@ -32,9 +44,13 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 
 import { queryKeys } from '@/lib/queryKeys';
 import { logError, type StrollError } from '@/lib/errors';
+import { personalizeExperienceList, type PersonalizationContext } from '@/lib/personalization';
+import { getFrequentCategories, getMostRecentlyViewedExperienceId } from '@/lib/recentlyViewed';
+import { trackFeedRefreshed } from '@/lib/analytics';
 import {
   fetchFeaturedExperiences,
   fetchDiscoverFeedPage,
+  fetchRelatedExperiences,
   type DiscoverFeedPage,
 } from '@/services/experiencesService';
 import {
@@ -45,13 +61,27 @@ import {
   type FeaturedExperiencesParams,
   type DiscoverFeedParams,
 } from '@/types/experience';
+import { isPlaceCategoryId, type PlaceCategoryId } from '@/constants/places';
 
 // ─── Stale Times ───────────────────────────────────────────────────────────────
 
 const STALE_TIMES = {
   featured: 10 * 60 * 1000,
   discover: 2 * 60 * 1000,
+  // Local storage, not network — cheap enough to refetch often, but no
+  // reason to hammer AsyncStorage on every render either.
+  frequentCategories: 60 * 1000,
 } as const;
+
+/**
+ * `fetchRelatedExperiences()` always excludes one experience id — for
+ * "Continue Exploring" (useContinueExploring below) that's normally the
+ * most recently viewed experience, but a brand-new user has no view
+ * history yet. The nil UUID never matches a real row, making the
+ * exclusion filter a harmless no-op instead of a special case the query
+ * builder needs to branch on.
+ */
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
 function isRetryableStrollError(failureCount: number, error: StrollError): boolean {
   return error.isRetryable && failureCount < 2;
@@ -116,6 +146,33 @@ export function useFeaturedExperiences(
   };
 }
 
+// ─── useFrequentCategories ────────────────────────────────────────────────────────
+
+export interface UseFrequentCategoriesResult {
+  categoryIds: PlaceCategoryId[];
+  isLoading: boolean;
+}
+
+/**
+ * Wraps `getFrequentCategories()` (lib/recentlyViewed.ts) in TanStack
+ * Query. There's no network request here — this exists purely so every
+ * consumer (personalization scoring, Continue Exploring) gets the same
+ * loading-state/caching shape as every other hook in this file, instead
+ * of hand-rolling its own `useState` + `useEffect` for an async read.
+ */
+export function useFrequentCategories(): UseFrequentCategoriesResult {
+  const query = useQuery<PlaceCategoryId[]>({
+    queryKey: queryKeys.personalization.frequentCategories(),
+    queryFn: () => getFrequentCategories(),
+    staleTime: STALE_TIMES.frequentCategories,
+  });
+
+  return {
+    categoryIds: query.data ?? [],
+    isLoading: query.isLoading,
+  };
+}
+
 // ─── useInfiniteDiscoverFeed ─────────────────────────────────────────────────────
 
 export interface UseInfiniteDiscoverFeedResult {
@@ -130,8 +187,14 @@ export interface UseInfiniteDiscoverFeedResult {
   isFetchingNextPage: boolean;
 }
 
-export function useInfiniteDiscoverFeed(params: DiscoverFeedParams): UseInfiniteDiscoverFeedResult {
-  const { sort, city, limit } = params;
+export function useInfiniteDiscoverFeed(
+  params: DiscoverFeedParams & {
+    /** Sprint 2 Prompt 3 — see personalizeExperienceList's doc for how these re-rank each page. Both default to empty (no personalization signal), not undefined, so this hook works exactly as before if a caller doesn't pass them. */
+    interests?: string[];
+    recentCategoryIds?: PlaceCategoryId[];
+  },
+): UseInfiniteDiscoverFeedResult {
+  const { sort, city, limit, interests = [], recentCategoryIds = [] } = params;
 
   const query = useInfiniteQuery<DiscoverFeedPage, StrollError>({
     queryKey: queryKeys.experiences.discover(sort, city),
@@ -153,11 +216,24 @@ export function useInfiniteDiscoverFeed(params: DiscoverFeedParams): UseInfinite
 
   // Flattened once per data change, not on every render — the feed can
   // grow to several hundred cards deep after many "load more"s.
+  //
+  // Personalization (Sprint 2 Prompt 3) re-ranks WITHIN each page, before
+  // flattening — never across the combined list. City and sort order are
+  // still resolved entirely server-side; this only reorders the rows one
+  // server page already returned. See personalization.ts's module doc for
+  // why that boundary matters for cursor pagination correctness.
+  const context: PersonalizationContext = useMemo(
+    () => ({ interests, recentCategoryIds }),
+    [interests, recentCategoryIds],
+  );
+
   const experiences = useMemo(() => {
     if (!query.data) return [];
-    const allRows = query.data.pages.flatMap((page) => page.rows);
-    return mapRowsToCards(allRows, 'useInfiniteDiscoverFeed');
-  }, [query.data]);
+    return query.data.pages.flatMap((page) => {
+      const cards = mapRowsToCards(page.rows, 'useInfiniteDiscoverFeed');
+      return personalizeExperienceList(cards, context);
+    });
+  }, [query.data, context]);
 
   return {
     experiences,
@@ -176,6 +252,84 @@ export function useInfiniteDiscoverFeed(params: DiscoverFeedParams): UseInfinite
   };
 }
 
+// ─── useContinueExploring ────────────────────────────────────────────────────────
+
+export interface UseContinueExploringResult {
+  experiences: ExperienceCardModel[];
+  isLoading: boolean;
+  isError: boolean;
+  error: StrollError | null;
+  refetch: () => void;
+}
+
+/**
+ * Recently-viewed categories are a stronger signal ("what they're
+ * actually doing right now") than onboarding interests ("what they said
+ * once, weeks ago") — so a recent category wins when both are available.
+ * Falls back to the first onboarding interest that happens to be a real
+ * PlaceCategoryId (see personalization.ts's module doc on why not every
+ * interest is one). Returns null — meaning "don't render this section
+ * at all" — only when neither signal exists.
+ */
+function pickSeedCategory(
+  interests: string[],
+  recentCategoryIds: PlaceCategoryId[],
+): PlaceCategoryId | null {
+  if (recentCategoryIds[0]) return recentCategoryIds[0];
+  return interests.find(isPlaceCategoryId) ?? null;
+}
+
+export interface UseContinueExploringParams {
+  city?: string;
+  interests: string[];
+  recentCategoryIds: PlaceCategoryId[];
+}
+
+/**
+ * Requirement #2 — "Continue Exploring": categories the user frequently
+ * opens, similar experiences, previously viewed experiences. Reuses
+ * `fetchRelatedExperiences()` (Sprint 2 Prompt 2's Experience Detail
+ * "related" rail) rather than a parallel recommendation query — the
+ * query shape ("other experiences in this category/city, excluding one
+ * id") is identical; only WHICH category and WHICH excluded id differ.
+ */
+export function useContinueExploring(
+  params: UseContinueExploringParams,
+): UseContinueExploringResult {
+  const { city, interests, recentCategoryIds } = params;
+  const category = pickSeedCategory(interests, recentCategoryIds);
+  const enabled = !!category && !!city;
+
+  const query = useQuery<ExperienceCardModel[], StrollError>({
+    queryKey: queryKeys.experiences.recommended(category ?? 'none', city ?? 'all'),
+    queryFn: async () => {
+      // `enabled` guarantees category/city are non-null whenever this runs.
+      const excludeId = (await getMostRecentlyViewedExperienceId()) ?? NIL_UUID;
+      const result = await fetchRelatedExperiences({
+        experienceId: excludeId,
+        category: category as PlaceCategoryId,
+        city: city as string,
+        limit: 10,
+      });
+      if (!result.ok) throw result.error;
+      return mapRowsToCards(result.data, 'useContinueExploring');
+    },
+    enabled,
+    staleTime: STALE_TIMES.discover,
+    retry: isRetryableStrollError,
+  });
+
+  return {
+    experiences: query.data ?? [],
+    isLoading: enabled && query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: () => {
+      void query.refetch();
+    },
+  };
+}
+
 // ─── useRefreshDiscoverFeed ──────────────────────────────────────────────────────
 
 export interface UseRefreshDiscoverFeedResult {
@@ -184,9 +338,12 @@ export interface UseRefreshDiscoverFeedResult {
 }
 
 /**
- * Force-refreshes every currently-mounted Discover query at once
- * (featured, every sort/city combination of the infinite feed — they all
- * share the `['experiences', ...]` key prefix via `queryKeys.experiences.all()`).
+ * Force-refreshes every currently-mounted Discover query at once —
+ * featured, every sort/city combination of the infinite feed, and
+ * Continue Exploring's recommendations (all share the `['experiences', ...]`
+ * key prefix via `queryKeys.experiences.all()`) — plus the frequent-
+ * categories read that feeds those recommendations, so a pull-to-refresh
+ * genuinely reflects fresh view history, not just fresh server data.
  * Mirrors useRefreshPlaces(). Prefer useDiscoverFeed()'s bundled `refresh`
  * for the Discover screen itself; this standalone version is for any
  * other surface that shows Discover content later (e.g. a widget) without
@@ -199,7 +356,13 @@ export function useRefreshDiscoverFeed(): UseRefreshDiscoverFeedResult {
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await queryClient.refetchQueries({ queryKey: queryKeys.experiences.all(), type: 'active' });
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: queryKeys.experiences.all(), type: 'active' }),
+        queryClient.refetchQueries({
+          queryKey: queryKeys.personalization.frequentCategories(),
+          type: 'active',
+        }),
+      ]);
     } finally {
       setIsRefreshing(false);
     }
@@ -210,13 +373,21 @@ export function useRefreshDiscoverFeed(): UseRefreshDiscoverFeedResult {
 
 // ─── useDiscoverFeed ─────────────────────────────────────────────────────────────
 // Screen-level composition — what app/(app)/(tabs)/discover.tsx actually
-// calls. Bundles the Featured Carousel, the sort-aware infinite feed, and
-// a single pull-to-refresh that invalidates both, so the screen itself
-// doesn't need to juggle three separate hooks and their loading states.
+// calls. Bundles the sort-aware personalized infinite feed, Continue
+// Exploring, and a single pull-to-refresh, so the screen itself doesn't
+// need to juggle separate hooks and their loading states.
+//
+// Does NOT bundle useFeaturedExperiences() — per product direction (the
+// Discover wireframe), there's no Featured Carousel on this screen
+// anymore. useFeaturedExperiences() stays exported above, standalone, for
+// whenever a Featured/Collections surface needs it again — bundling an
+// unrendered background fetch into every Discover mount would be exactly
+// the kind of unnecessary network request this app's performance rules
+// call out.
 
 export interface UseDiscoverFeedResult {
-  featured: UseFeaturedExperiencesResult;
   feed: UseInfiniteDiscoverFeedResult;
+  continueExploring: UseContinueExploringResult;
   sort: DiscoverSortMode;
   setSort: (sort: DiscoverSortMode) => void;
   refresh: () => Promise<void>;
@@ -225,13 +396,17 @@ export interface UseDiscoverFeedResult {
 
 export interface UseDiscoverFeedParams {
   city?: string;
+  /** `profile.interests` — pass through so both personalization and Continue Exploring can use it. Defaults to none. */
+  interests?: string[];
   /** Initial sort mode for the feed section. Defaults to 'newest'. */
   initialSort?: DiscoverSortMode;
 }
 
 export function useDiscoverFeed(params?: UseDiscoverFeedParams): UseDiscoverFeedResult {
-  const { city, initialSort = 'newest' } = params ?? {};
+  const { city, interests = [], initialSort = 'newest' } = params ?? {};
   const [sort, setSort] = useState<DiscoverSortMode>(initialSort);
+
+  const { categoryIds: recentCategoryIds } = useFrequentCategories();
 
   // Deliberately NOT gated on the profile query resolving first (e.g. via
   // `enabled: !!city`). Discover is the app's primary home screen — if the
@@ -242,9 +417,14 @@ export function useDiscoverFeed(params?: UseDiscoverFeedParams): UseDiscoverFeed
   // and swaps to the city-filtered one the moment `city` resolves — a tiny
   // flash of broader content beats making the whole home screen wait on a
   // second round trip before painting anything at all.
-  const featured = useFeaturedExperiences({ city });
-  const feed = useInfiniteDiscoverFeed({ sort, city });
-  const { refresh, isRefreshing } = useRefreshDiscoverFeed();
+  const feed = useInfiniteDiscoverFeed({ sort, city, interests, recentCategoryIds });
+  const continueExploring = useContinueExploring({ city, interests, recentCategoryIds });
+  const { refresh: refreshQueries, isRefreshing } = useRefreshDiscoverFeed();
 
-  return { featured, feed, sort, setSort, refresh, isRefreshing };
+  const refresh = useCallback(async () => {
+    trackFeedRefreshed({ screen: 'discover' });
+    await refreshQueries();
+  }, [refreshQueries]);
+
+  return { feed, continueExploring, sort, setSort, refresh, isRefreshing };
 }

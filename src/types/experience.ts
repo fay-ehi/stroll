@@ -41,6 +41,8 @@
 import { truncate } from '@/utils';
 import type { PlaceCategoryId, PlaceCategory } from '@/constants/places';
 import { getPlaceCategory, isPlaceCategoryId } from '@/constants/places';
+import { VISIT_TYPES, AMOUNT_SPENT_OPTIONS, GOOD_FOR_TAGS, VIBE_TAGS } from '@/constants/app';
+import type { VisitType, AmountSpent, GoodForTag, VibeTag } from '@/constants/app';
 
 // ─── Raw Row Shapes ────────────────────────────────────────────────────────────
 // These describe the shape of the embedded Supabase response used by every
@@ -139,15 +141,18 @@ export interface ExperienceCardModel {
   createdAt: string;
 }
 
-/** Superset of ExperienceCardModel — adds the fields an Experience Detail screen (later sprint) will need. */
+/** Superset of ExperienceCardModel — adds the fields an Experience Detail screen needs. */
 export interface ExperienceModel extends ExperienceCardModel {
   story: string;
   photos: ImagePreview[];
   wouldRecommend: boolean | null;
-  amountSpent: string | null;
-  visitType: string | null;
-  goodForTags: string[];
-  vibeTags: string[];
+  /** Null if missing, or if the stored value isn't one of AMOUNT_SPENT_OPTIONS (constants/app.ts). */
+  amountSpent: AmountSpent | null;
+  /** Null if missing, or if the stored value isn't one of VISIT_TYPES (constants/app.ts). */
+  visitType: VisitType | null;
+  /** Unrecognized values are dropped, not thrown on — see `toRecognizedTags`. */
+  goodForTags: GoodForTag[];
+  vibeTags: VibeTag[];
   updatedAt: string;
 }
 
@@ -172,6 +177,20 @@ function toCreatorPreview(row: ExperienceCreatorRow): CreatorPreview {
     avatarUrl: row.avatar_url,
     isVerified: row.is_verified,
   };
+}
+
+function isVisitType(value: string): value is VisitType {
+  return (VISIT_TYPES as readonly string[]).includes(value);
+}
+
+function isAmountSpent(value: string): value is AmountSpent {
+  return (AMOUNT_SPENT_OPTIONS as readonly string[]).includes(value);
+}
+
+/** Drops any value that isn't a recognized tag, rather than throwing — a stray/legacy tag shouldn't break the whole detail page. */
+function toRecognizedTags<T extends string>(values: string[], recognized: readonly T[]): T[] {
+  const recognizedSet = new Set<string>(recognized);
+  return values.filter((value): value is T => recognizedSet.has(value));
 }
 
 /** Maps a raw joined Discover row into the lean shape the Experience Card renders. Returns null for a malformed row — see module doc. */
@@ -206,10 +225,10 @@ export function toExperienceModel(row: ExperienceFeedRow): ExperienceModel | nul
     story: row.story,
     photos: sortedPhotos(row.experience_photos),
     wouldRecommend: row.would_recommend,
-    amountSpent: row.amount_spent,
-    visitType: row.visit_type,
-    goodForTags: row.good_for_tags,
-    vibeTags: row.vibe_tags,
+    amountSpent: row.amount_spent && isAmountSpent(row.amount_spent) ? row.amount_spent : null,
+    visitType: row.visit_type && isVisitType(row.visit_type) ? row.visit_type : null,
+    goodForTags: toRecognizedTags(row.good_for_tags, GOOD_FOR_TAGS),
+    vibeTags: toRecognizedTags(row.vibe_tags, VIBE_TAGS),
     updatedAt: row.updated_at,
   };
 }
@@ -245,5 +264,116 @@ export interface DiscoverFeedParams {
    * sprint wires selection through to this param.
    */
   category?: PlaceCategoryId;
+  limit?: number;
+}
+
+// ─── Experience Detail (Sprint 2 Prompt 2) ──────────────────────────────────────
+//
+// The detail screen needs a richer `place` (address, coordinates,
+// description, gallery — for Location Preview and the header) and a
+// richer `creator` (bio — for the Creator section) than the feed's lean
+// embed provides. Rather than bloat every Discover query with columns it
+// never renders, `fetchExperienceById()` (experiencesService.ts) runs its
+// own query with a wider select, returning this dedicated row shape.
+//
+// `ExperienceDetailRow` is declared as a subtype of `ExperienceFeedRow`
+// (its `place`/`creator` are supersets of the feed's) specifically so
+// `toExperienceModel()` above can be called on a detail row unmodified —
+// see `toExperienceDetailModel()` below, which does exactly that instead
+// of re-deriving the same field mapping a second time.
+
+export interface ExperienceDetailPlaceRow extends ExperiencePlaceRow {
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  description: string | null;
+  gallery: string[];
+}
+
+export interface ExperienceDetailCreatorRow extends ExperienceCreatorRow {
+  bio: string | null;
+}
+
+export interface ExperienceDetailRow extends Omit<ExperienceFeedRow, 'place' | 'creator'> {
+  place: ExperienceDetailPlaceRow | null;
+  creator: ExperienceDetailCreatorRow | null;
+}
+
+/** The Location Preview / header's view of a place — a deliberately small slice of PlaceModel, not the whole thing (no rating/priceLevel/openingHours — see types/place.ts's PRD-alignment note for why those stay unsurfaced). */
+export interface PlaceSummary {
+  id: string;
+  name: string;
+  slug: string;
+  city: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  description: string | null;
+  category: CategoryPreview | null;
+}
+
+/** The Creator section's view of a creator — CreatorPreview plus what only the detail screen needs. */
+export interface CreatorDetail extends CreatorPreview {
+  bio: string | null;
+  /**
+   * Populated by a separate, secondary query (`useCreatorExperienceCount`
+   * in useExperienceDetail.ts) — deliberately NOT part of the main detail
+   * fetch, so a slow count query can never block the header/gallery/
+   * description from rendering. `undefined` while that query hasn't
+   * resolved yet; the Creator section shows nothing for this field in
+   * that case rather than a loading flicker on a secondary stat.
+   */
+  totalExperiences?: number;
+}
+
+/** Superset of ExperienceModel — the full shape app/(app)/experience/[id].tsx renders. */
+export interface ExperienceDetailModel extends Omit<ExperienceModel, 'creator'> {
+  creator: CreatorDetail;
+  place: PlaceSummary;
+}
+
+/**
+ * Maps a raw detail row into `ExperienceDetailModel`. Reuses
+ * `toExperienceModel()` for every field that query already computes
+ * correctly (title, storyPreview, tags, category, ...) instead of
+ * re-deriving them — only `creator.bio` and the richer `place` object are
+ * new here. Returns null for a malformed row — see the module doc at the
+ * top of this file.
+ */
+export function toExperienceDetailModel(row: ExperienceDetailRow): ExperienceDetailModel | null {
+  // `row` is structurally assignable to ExperienceFeedRow — its `place`/
+  // `creator` are supersets (extra fields), never a mismatch — so this
+  // reuses the base mapper directly rather than duplicating its logic.
+  const base = toExperienceModel(row);
+  if (!base || !row.creator || !row.place) return null;
+
+  return {
+    ...base,
+    creator: { ...base.creator, bio: row.creator.bio },
+    place: {
+      id: row.place.id,
+      name: row.place.name,
+      slug: row.place.slug,
+      city: row.place.city,
+      address: row.place.address,
+      latitude: row.place.latitude,
+      longitude: row.place.longitude,
+      description: row.place.description,
+      category: base.category,
+    },
+  };
+}
+
+// ─── Related Experiences (Sprint 2 Prompt 2) ────────────────────────────────────
+// "Selection logic may use: Same category, Nearby location, Similar tags.
+// Do not overcomplicate recommendation logic at this stage." — this uses
+// exactly one strategy (same category, same city, excluding the current
+// experience) rather than a blended/fallback approach. See
+// fetchRelatedExperiences() in experiencesService.ts.
+
+export interface RelatedExperiencesParams {
+  experienceId: string;
+  category: PlaceCategoryId;
+  city: string;
   limit?: number;
 }

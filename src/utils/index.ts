@@ -24,20 +24,20 @@ import { Platform } from 'react-native';
  * Examples: "just now", "2 minutes ago", "3 hours ago", "Yesterday", "Jan 12"
  */
 export function timeAgo(date: Date | string): string {
-  const d     = typeof date === 'string' ? new Date(date) : date;
-  const now   = new Date();
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const now = new Date();
   const diffMs = now.getTime() - d.getTime();
-  const diffS  = Math.floor(diffMs / 1000);
-  const diffM  = Math.floor(diffS  / 60);
-  const diffH  = Math.floor(diffM  / 60);
-  const diffD  = Math.floor(diffH  / 24);
+  const diffS = Math.floor(diffMs / 1000);
+  const diffM = Math.floor(diffS / 60);
+  const diffH = Math.floor(diffM / 60);
+  const diffD = Math.floor(diffH / 24);
 
-  if (diffS < 30)   return 'just now';
-  if (diffS < 60)   return `${diffS} seconds ago`;
-  if (diffM < 60)   return diffM === 1 ? '1 minute ago' : `${diffM} minutes ago`;
-  if (diffH < 24)   return diffH === 1 ? '1 hour ago'   : `${diffH} hours ago`;
-  if (diffD === 1)  return 'Yesterday';
-  if (diffD < 7)    return `${diffD} days ago`;
+  if (diffS < 30) return 'just now';
+  if (diffS < 60) return `${diffS} seconds ago`;
+  if (diffM < 60) return diffM === 1 ? '1 minute ago' : `${diffM} minutes ago`;
+  if (diffH < 24) return diffH === 1 ? '1 hour ago' : `${diffH} hours ago`;
+  if (diffD === 1) return 'Yesterday';
+  if (diffD < 7) return `${diffD} days ago`;
 
   return formatDate(d);
 }
@@ -46,12 +46,12 @@ export function timeAgo(date: Date | string): string {
  * Formats a date as "Jan 12" or "Jan 12, 2024" if not current year.
  */
 export function formatDate(date: Date | string): string {
-  const d    = typeof date === 'string' ? new Date(date) : date;
-  const now  = new Date();
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const now = new Date();
   const opts: Intl.DateTimeFormatOptions = {
     month: 'short',
-    day:   'numeric',
-    ...( d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {} ),
+    day: 'numeric',
+    ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
   };
   return d.toLocaleDateString('en-NG', opts);
 }
@@ -63,8 +63,8 @@ export function formatDateLong(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   return d.toLocaleDateString('en-NG', {
     weekday: 'long',
-    month:   'long',
-    day:     'numeric',
+    month: 'long',
+    day: 'numeric',
   });
 }
 
@@ -89,7 +89,7 @@ export function amountSpentToMidpoint(label: string): number {
     .replace(/,/g, '')
     .split(/[\s–\-+]+/)
     .map(Number)
-    .filter(n => !isNaN(n) && n > 0);
+    .filter((n) => !isNaN(n) && n > 0);
 
   if (numbers.length === 0) return 0;
   if (numbers.length === 1) {
@@ -223,23 +223,33 @@ export const VALIDATION = {
   isValidAvatarFileSize(sizeBytes: number, maxBytes: number): boolean {
     return sizeBytes > 0 && sizeBytes <= maxBytes;
   },
+
+  /**
+   * UUID v1–v5 (Supabase's `uuid` primary key format). Used to reject an
+   * obviously-malformed id (e.g. a garbled deep link) before it ever
+   * reaches the network — see fetchExperienceById() in
+   * experiencesService.ts.
+   */
+  isValidUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  },
 } as const;
 
 // ─── Platform Utilities ────────────────────────────────────────────────────────
 
 export const PLATFORM = {
-  isIOS:     Platform.OS === 'ios',
+  isIOS: Platform.OS === 'ios',
   isAndroid: Platform.OS === 'android',
-  isWeb:     Platform.OS === 'web',
+  isWeb: Platform.OS === 'web',
 
   /**
    * Returns the platform-appropriate value.
    * Usage: PLATFORM.select({ ios: 'padding', android: 'height' })
    */
   select<T>(options: { ios?: T; android?: T; web?: T; default?: T }): T | undefined {
-    if (Platform.OS === 'ios'     && options.ios     !== undefined) return options.ios;
+    if (Platform.OS === 'ios' && options.ios !== undefined) return options.ios;
     if (Platform.OS === 'android' && options.android !== undefined) return options.android;
-    if (Platform.OS === 'web'     && options.web     !== undefined) return options.web;
+    if (Platform.OS === 'web' && options.web !== undefined) return options.web;
     return options.default;
   },
 } as const;
@@ -252,7 +262,7 @@ export const PLATFORM = {
  */
 export function uniqueBy<T>(arr: T[], key: (item: T) => unknown): T[] {
   const seen = new Set<unknown>();
-  return arr.filter(item => {
+  return arr.filter((item) => {
     const k = key(item);
     if (seen.has(k)) return false;
     seen.add(k);

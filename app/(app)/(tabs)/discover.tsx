@@ -3,62 +3,103 @@
  * app/(app)/(tabs)/discover.tsx
  *
  * PRD §8.3 — Discover: the user's primary home screen after onboarding.
+ * Layout follows the product-provided wireframe:
+ *   [📍 city selector]     Stroll     [🔔 notifications]
+ *   For You | Following
+ *   Continue Exploring (horizontal rail)
+ *   Experience Card
+ *   Experience Card
+ *   ...
  *
- * Sprint 2 Prompt 1 scope: the full Discover *browsing* experience —
- * greeting, Featured Carousel, Categories Row (display-only), and the
- * paginated Experience Feed (newest / trending). Explicitly NOT in scope
- * per this sprint's brief: experience creation, maps, saving, collections,
- * likes, comments, following, search, notifications, settings — those are
- * later sprints, and nothing on this screen depends on them.
+ * Swipe-between-tabs, corrected structure: the top bar and the
+ * For You/Following tab control are shared chrome — rendered EXACTLY
+ * ONCE here, above <SwipeableTabs>. Only the content that's genuinely
+ * different per tab (the feed itself, "Continue Exploring") lives inside
+ * the pager's two panels (<ForYouFeed>, <FollowingFeed>).
  *
- * Uses a single top-level FlatList as the whole screen's scroll container
- * (not ScreenContainer's ScrollView) — the Experience Feed needs real
- * FlatList virtualization for infinite scroll, and nesting a virtualized
- * list inside another scrollable is an anti-pattern RN explicitly warns
- * about. The greeting, Featured Carousel, and Categories Row become the
- * FlatList's `ListHeaderComponent` instead, so the whole screen scrolls
- * as one unit.
+ * This replaces an earlier version that built the top bar + tabs
+ * separately inside EACH panel's own header. That looked fine with one
+ * tab open, but since a pager needs both panels mounted side by side for
+ * the drag to feel continuous (not a hard cut), it meant the top bar and
+ * tabs were rendered twice and visible simultaneously mid-swipe — "I see
+ * everything twice" while dragging. The fix is this file: one top bar,
+ * one <DiscoverTabs>, sitting above the pager, never duplicated.
+ *
+ * `dragProgress` (a Reanimated SharedValue<number>, 0 = For You,
+ * 1 = Following) is created once here and handed to both <DiscoverTabs>
+ * (to animate its sliding underline) and <SwipeableTabs> (which drives
+ * it during a drag) — this is the ONLY thing that connects the header to
+ * the pager below it now; no header content is duplicated into panels.
+ *
+ * Collections carousel: intentionally NOT added to the header yet — see
+ * src/components/discover/CollectionCarousel.tsx's doc. That component
+ * exists as a ready-to-wire skeleton (Sprint N placeholder) per product
+ * direction: build the shape now, connect real data + turn it on for a
+ * future sprint once the collections table/service exists.
+ *
+ * Sprint 2 Prompt 3 (Personalization & Refinement) changes, on top of
+ * Prompt 1's layout:
+ *   - The feed is personalized (requirement #1) — see
+ *     useInfiniteDiscoverFeed's doc in useDiscoverFeed.ts. Nothing about
+ *     this screen changed to support it; `interests` is just one more
+ *     param passed to useDiscoverFeed().
+ *   - "Continue Exploring" (requirement #2) is a rail inside the For You
+ *     panel's own list header — reuses ExperienceRail (the same UI
+ *     Related Experiences already uses on the detail screen).
+ *   - Offline indicator (requirement #4) — <OfflineBanner /> pinned above
+ *     each panel's own list (loading/empty/main), reusing
+ *     useNetworkStatus internally rather than each screen re-deriving
+ *     `isOffline`.
+ *   - Differentiated empty states (requirement #5) — see ForYouFeed's
+ *     `resolveEmptyState()`.
+ *   - FlatList performance tuning (requirement #3) — see ForYouFeed.tsx.
+ *   - `feed_refreshed` fires from useDiscoverFeed()'s `refresh` itself,
+ *     not here — see that hook for why (screen-agnostic, so any other
+ *     surface that reuses it later gets correct tracking for free).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, RefreshControl, View, StyleSheet } from 'react-native';
-import { AlertCircle, Compass, WifiOff } from 'lucide-react-native';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSharedValue } from 'react-native-reanimated';
 
 import { theme } from '@/theme';
-import { EmptyState, H5, Spinner, Caption, Chip, ScreenContainer } from '@/components/ui';
 import {
-  DiscoverHeader,
-  FeaturedCarousel,
-  FeaturedCarouselSkeleton,
-  CategoriesRow,
-  CategoriesRowSkeleton,
-  ExperienceCard,
-  ExperienceFeedSkeleton,
+  DiscoverTopBar,
+  DiscoverTabs,
+  ExperienceRail,
+  SwipeableTabs,
+  ForYouFeed,
+  FollowingFeed,
+  type DiscoverFeedTab,
 } from '@/components/discover';
 import { useDiscoverFeed } from '@/hooks/useDiscoverFeed';
 import { useProfile } from '@/hooks/useProfile';
 import { useNetworkStatus } from '@/hooks';
 import { showToast } from '@/stores/toastStore';
-import type { ExperienceCardModel, DiscoverSortMode } from '@/types/experience';
-import type { PlaceCategoryId } from '@/constants/places';
+import type { DiscoverSortMode } from '@/types/experience';
 
 export default function DiscoverScreen() {
-  const { profile, isLoading: isProfileLoading } = useProfile();
+  const { profile } = useProfile();
   const network = useNetworkStatus();
   const isOffline = !network.isConnected || network.isInternetReachable === false;
 
-  const city = profile?.city ?? undefined;
-  const { featured, feed, sort, setSort, refresh, isRefreshing } = useDiscoverFeed({ city });
+  const [feedTab, setFeedTab] = useState<DiscoverFeedTab>('for-you');
+  // Shared with both DiscoverTabs (reads it, for the sliding underline)
+  // and SwipeableTabs (writes it, during a drag) — see module doc.
+  const dragProgress = useSharedValue(0);
 
-  // Categories Row selection is page-local, display-only UI state — see
-  // CategoriesRow's module doc for why this isn't wired to the feed yet.
-  const [selectedCategoryId, setSelectedCategoryId] = useState<PlaceCategoryId | null>(null);
+  const city = profile?.city ?? undefined;
+  const interests = profile?.interests ?? [];
+  const { feed, continueExploring, sort, refresh, isRefreshing } = useDiscoverFeed({
+    city,
+    interests,
+  });
 
   // A page-fetch failure (scrolling past the last loaded page) shouldn't
   // blow away an already-populated feed — surface it as a toast instead of
-  // an EmptyState, exactly like every other mutation/query failure in this
-  // app. Fires once per new failure, not on every re-render while the
-  // error persists.
+  // an EmptyState. Fires once per new failure, not on every re-render
+  // while the error persists.
   const previousFeedError = useRef(feed.error);
   useEffect(() => {
     const hasNewError = feed.isError && feed.error !== previousFeedError.current;
@@ -71,279 +112,65 @@ export default function DiscoverScreen() {
     previousFeedError.current = feed.error;
   }, [feed.isError, feed.error, feed.experiences.length]);
 
-  const handleEndReached = useCallback(() => {
-    if (feed.hasNextPage && !feed.isFetchingNextPage && !feed.isError) {
-      feed.fetchNextPage();
-    }
-  }, [feed.hasNextPage, feed.isFetchingNextPage, feed.isError, feed.fetchNextPage]);
-
-  const handleSortChange = useCallback(
-    (nextSort: DiscoverSortMode) => {
-      if (nextSort !== sort) setSort(nextSort);
-    },
-    [sort, setSort],
-  );
-
-  const renderItem = useCallback(
-    ({ item }: { item: ExperienceCardModel }) => (
-      <View style={styles.cardWrapper}>
-        <ExperienceCard experience={item} />
-      </View>
-    ),
-    [],
-  );
-
-  const keyExtractor = useCallback((item: ExperienceCardModel) => item.id, []);
-
-  // ── Header: greeting + Featured + Categories + feed section title ──────────
-  const listHeader = useMemo(
+  // ── For You panel's own list header: just "Continue Exploring" now —
+  // top bar + tabs moved out to the screen level (see module doc). ───────────
+  const forYouListHeader = useMemo(
     () => (
-      <View style={styles.headerStack}>
-        <DiscoverHeader
-          displayName={profile?.displayName ?? null}
-          city={profile?.city ?? null}
-          isLoading={isProfileLoading}
+      <View style={styles.forYouHeaderStack}>
+        <ExperienceRail
+          title="Continue Exploring"
+          experiences={continueExploring.experiences}
+          isLoading={continueExploring.isLoading}
+          source="continue_exploring"
         />
-
-        <View style={styles.section}>
-          <H5 style={styles.sectionTitle}>Featured</H5>
-          {featured.isLoading ? (
-            <FeaturedCarouselSkeleton />
-          ) : featured.isError ? (
-            <View style={styles.inlineError}>
-              <Caption color={theme.colors.text.tertiary}>
-                {featured.error?.userMessage ?? "Couldn't load featured experiences."}
-              </Caption>
-              <Chip label="Retry" onPress={featured.refetch} style={styles.inlineRetryChip} />
-            </View>
-          ) : featured.experiences.length > 0 ? (
-            <FeaturedCarousel experiences={featured.experiences} />
-          ) : null}
-        </View>
-
-        <View style={styles.section}>
-          <H5 style={styles.sectionTitle}>Categories</H5>
-          {isProfileLoading ? (
-            <CategoriesRowSkeleton />
-          ) : (
-            <CategoriesRow
-              selectedCategoryId={selectedCategoryId}
-              onSelect={setSelectedCategoryId}
-            />
-          )}
-        </View>
-
-        <View style={[styles.section, styles.feedHeaderRow]}>
-          <H5 style={styles.sectionTitle}>
-            {sort === 'newest' ? 'Latest Experiences' : 'Trending Now'}
-          </H5>
-          <View style={styles.sortToggle}>
-            <Chip
-              label="Newest"
-              selected={sort === 'newest'}
-              onPress={() => handleSortChange('newest')}
-            />
-            <Chip
-              label="Trending"
-              selected={sort === 'trending'}
-              onPress={() => handleSortChange('trending')}
-            />
-          </View>
-        </View>
+        {/* Collections carousel slot — not wired yet, see module doc. */}
       </View>
     ),
-    [
-      profile?.displayName,
-      profile?.city,
-      isProfileLoading,
-      featured.isLoading,
-      featured.isError,
-      featured.error,
-      featured.experiences,
-      featured.refetch,
-      selectedCategoryId,
-      sort,
-      handleSortChange,
-    ],
+    [continueExploring.experiences, continueExploring.isLoading],
   );
 
-  // ── Footer: pagination spinner, end-of-feed indicator, or retry ────────────
-  const listFooter = useMemo(() => {
-    if (feed.experiences.length === 0) return null;
-
-    if (feed.isFetchingNextPage) {
-      return (
-        <View style={styles.footer}>
-          <Spinner accessibilityLabel="Loading more experiences" />
-        </View>
-      );
-    }
-
-    if (feed.isError) {
-      return (
-        <View style={[styles.footer, styles.inlineError]}>
-          <Caption color={theme.colors.text.tertiary}>Couldn&apos;t load more experiences.</Caption>
-          <Chip label="Retry" onPress={feed.fetchNextPage} style={styles.inlineRetryChip} />
-        </View>
-      );
-    }
-
-    if (!feed.hasNextPage) {
-      return (
-        <View style={styles.footer}>
-          <Caption color={theme.colors.text.tertiary}>You&apos;ve reached the end 👣</Caption>
-        </View>
-      );
-    }
-
-    return null;
-  }, [
-    feed.experiences.length,
-    feed.isFetchingNextPage,
-    feed.isError,
-    feed.hasNextPage,
-    feed.fetchNextPage,
-  ]);
-
-  // ── Empty body states — offline, error, or genuinely empty ─────────────────
-  // Only take over the whole screen when there's no data at all yet; a
-  // failure with existing data is handled by the toast + footer above instead.
-  if (feed.experiences.length === 0 && !feed.isLoading) {
-    let emptyState: React.ReactNode;
-
-    if (isOffline) {
-      emptyState = (
-        <EmptyState
-          icon={WifiOff}
-          title="You're offline"
-          description="Connect to the internet to discover new experiences."
-          action={{ label: 'Try Again', onPress: refresh }}
-        />
-      );
-    } else if (feed.isError) {
-      emptyState = (
-        <EmptyState
-          icon={AlertCircle}
-          title="We couldn't load Discover"
-          description={feed.error?.userMessage ?? 'Something went wrong. Please try again.'}
-          action={{ label: 'Try Again', onPress: feed.refetch }}
-        />
-      );
-    } else {
-      emptyState = (
-        <EmptyState
-          icon={Compass}
-          title="No experiences yet"
-          description={`Be the first to share an experience in ${city ?? 'your city'}.`}
-        />
-      );
-    }
-
-    return (
-      <ScreenContainer scroll={false} padded={false}>
-        {listHeader}
-        <View style={styles.emptyBody}>{emptyState}</View>
-      </ScreenContainer>
-    );
-  }
-
-  // ── Initial loading — full skeleton screen, never a blank page ──────────────
-  if (feed.isLoading) {
-    return (
-      <ScreenContainer scroll={false} padded={false}>
-        <View style={styles.headerStack}>
-          <DiscoverHeader displayName={null} city={profile?.city ?? null} isLoading />
-          <View style={styles.section}>
-            <H5 style={styles.sectionTitle}>Featured</H5>
-            <FeaturedCarouselSkeleton />
-          </View>
-          <View style={styles.section}>
-            <H5 style={styles.sectionTitle}>Categories</H5>
-            <CategoriesRowSkeleton />
-          </View>
-          <View style={styles.section}>
-            <H5 style={styles.sectionTitle}>Latest Experiences</H5>
-          </View>
-        </View>
-        <View style={styles.feedListPadding}>
-          <ExperienceFeedSkeleton />
-        </View>
-      </ScreenContainer>
-    );
-  }
+  // Following has no panel-specific header content today — passing an
+  // empty element (rather than null) keeps ForYouFeed/FollowingFeed's
+  // `listHeader` prop non-optional and simple, and gives a future
+  // "Following"-only rail somewhere to slot in later.
+  const emptyListHeader = useMemo(() => <View />, []);
 
   return (
-    <ScreenContainer scroll={false} padded={false}>
-      <FlatList
-        data={feed.experiences}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        ListHeaderComponent={listHeader}
-        ListFooterComponent={listFooter}
-        contentContainerStyle={styles.listContent}
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.5}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={() => {
-              void refresh();
-            }}
-            tintColor={theme.colors.brand.primary}
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      <DiscoverTopBar city={profile?.city ?? null} />
+      <DiscoverTabs activeTab={feedTab} onChange={setFeedTab} dragProgress={dragProgress} />
+
+      <SwipeableTabs
+        activeIndex={feedTab === 'for-you' ? 0 : 1}
+        onChangeIndex={(index) => setFeedTab(index === 0 ? 'for-you' : 'following')}
+        dragProgress={dragProgress}
+        first={
+          <ForYouFeed
+            feed={feed}
+            sort={sort as DiscoverSortMode}
+            refresh={refresh}
+            isRefreshing={isRefreshing}
+            isOffline={isOffline}
+            city={city}
+            listHeader={forYouListHeader}
+            loadingHeader={emptyListHeader}
           />
         }
-        accessibilityLabel="Discover feed"
+        second={<FollowingFeed listHeader={emptyListHeader} />}
       />
-    </ScreenContainer>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  listContent: {
-    paddingBottom: theme.spacing['4xl'],
-  },
-  headerStack: {
-    gap: theme.spacing.xl,
-    paddingTop: theme.spacing.sm,
-  },
-  section: {
-    gap: theme.spacing.sm,
-  },
-  sectionTitle: {
-    paddingHorizontal: theme.layout.screenPaddingHorizontal,
-  },
-  feedHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.layout.screenPaddingHorizontal,
-  },
-  sortToggle: {
-    flexDirection: 'row',
-    gap: theme.spacing.xs,
-  },
-  cardWrapper: {
-    paddingHorizontal: theme.layout.screenPaddingHorizontal,
-    marginTop: theme.spacing.lg,
-  },
-  inlineError: {
-    paddingHorizontal: theme.layout.screenPaddingHorizontal,
-    alignItems: 'flex-start',
-    gap: theme.spacing.xs,
-  },
-  inlineRetryChip: {
-    marginTop: 0,
-  },
-  footer: {
-    paddingVertical: theme.spacing.xl,
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
-  emptyBody: {
+  screen: {
     flex: 1,
+    backgroundColor: theme.colors.neutral.background,
+    paddingTop: theme.spacing.sm,
+    gap: theme.spacing.lg,
   },
-  feedListPadding: {
-    marginTop: theme.spacing.lg,
+  forYouHeaderStack: {
+    gap: theme.spacing.lg,
+    paddingTop: theme.spacing.sm,
   },
 });

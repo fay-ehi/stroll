@@ -37,11 +37,7 @@ export { Icon, type IconProps, type IconSize } from './Icon';
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './Button';
 
 // ─── TextInput ─────────────────────────────────────────────────────────────────
-export {
-  TextInput,
-  type TextInputComponentProps,
-  type TextInputState,
-} from './TextInput';
+export { TextInput, type TextInputComponentProps, type TextInputState } from './TextInput';
 
 // ─── Card ──────────────────────────────────────────────────────────────────────
 export { Card, type CardProps, type CardVariant } from './Card';
@@ -76,3 +72,6 @@ export { EmptyState, type EmptyStateProps } from './EmptyState';
 
 // ─── ScreenContainer ───────────────────────────────────────────────────────────
 export { ScreenContainer, type ScreenContainerProps } from './ScreenContainer';
+
+// ─── OfflineBanner ─────────────────────────────────────────────────────────────
+export { OfflineBanner } from './OfflineBanner';

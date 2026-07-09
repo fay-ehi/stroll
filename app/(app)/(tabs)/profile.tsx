@@ -4,28 +4,50 @@
  *
  * PRD §8.11 — My Profile: avatar, display name, city, bio, interests.
  *
- * Sprint 1 Prompt 3 scope: this is a verification screen for the Profile
- * domain — it proves the full pipeline (auto-created profile, avatar
- * upload/replace/remove, edit + cache update, offline/error states) works
- * end to end. It is deliberately NOT the final polished Edit Profile UI
- * from the Design System (city picker, interest re-selection, Experiences/
- * Collections tabs, follower counts) — that full screen is later sprint
- * scope per this prompt's brief ("do not build profile editing screens
- * beyond what is required to verify the profile system").
+ * Redesign (this pass): Instagram/TikTok-style layout —
+ *   Avatar · Display Name [pen icon] · @username · Bio
+ *   Stat row: Experiences · Followers · Following (tap Followers/
+ *   Following to open the follow list modal)
+ *   Gallery grid of the user's own published experiences
+ *   Log out (temporary — see note below)
+ *
+ * Changes from the previous "verification screen" version (see git
+ * history / the old doc comment this replaced):
+ *   - Edit is now a small pen icon beside the display name, not a
+ *     separate "Edit Profile" button below the bio.
+ *   - City/location row removed from the header per this pass's brief.
+ *     `city` is untouched everywhere else (Discover personalization,
+ *     onboarding, etc.) — only this screen's header stopped displaying
+ *     it. The edit form's fields are unchanged (display name + bio only,
+ *     same as before) since city was never editable from this screen to
+ *     begin with (see the old TextInput fields).
+ *   - Stat row + gallery grid are new. Gallery is REAL data
+ *     (useUserGallery → fetchExperiencesByUser, the same `experiences`
+ *     table every other feed reads from). Follower/Following counts are
+ *     a SKELETON — see src/types/follow.ts's module doc; no `follows`
+ *     table exists in this codebase yet, so those numbers come from a
+ *     mock service until a future sprint wires the real thing. Nothing
+ *     else on this screen needs to change when that happens.
+ *   - Tapping a gallery photo currently does nothing (per product
+ *     direction — Experience Detail linking is a future pass).
  *
  * Log Out lives here (not Settings) for now, since Settings is still a
- * placeholder (Sprint 4). Move this into Settings once that screen ships.
+ * placeholder (Sprint 4). Move this into Settings once that screen ships
+ * — left as-is per product direction ("temporarily there").
  */
 
-import React from 'react';
-import { View, Pressable, StyleSheet, Alert, RefreshControl } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, Pressable, FlatList, StyleSheet, Alert, RefreshControl, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
+import { Camera, BadgeCheck, WifiOff, AlertCircle, Pencil, ImageOff, Compass } from 'lucide-react-native';
+
 import {
-  ScreenContainer, H2, Body, BodySmall, Caption,
+  ScreenContainer, H2, H4, Body, Caption,
   Avatar, Button, TextInput, Icon,
   Skeleton, SkeletonCircle, SkeletonText,
   EmptyState,
 } from '@/components/ui';
-import { Camera, MapPin, BadgeCheck, WifiOff, AlertCircle, Pencil } from 'lucide-react-native';
 import { useSignOut } from '@/hooks/useAuth';
 import {
   useProfile,
@@ -34,9 +56,12 @@ import {
   useUploadAvatar,
   useRemoveAvatar,
 } from '@/hooks/useProfile';
+import { useUserGallery } from '@/hooks/useUserGallery';
+import { useFollowCounts } from '@/hooks/useFollows';
 import { useProfileStore, type AvatarUploadStage } from '@/stores/profileStore';
 import { PROFILE_LIMITS } from '@/constants/app';
-import { theme } from '@/theme';
+import { theme, FONT_FAMILY } from '@/theme';
+import type { ExperienceCardModel } from '@/types/experience';
 
 function uploadStageLabel(stage: AvatarUploadStage): string {
   switch (stage) {
@@ -48,6 +73,33 @@ function uploadStageLabel(stage: AvatarUploadStage): string {
   }
 }
 
+const GRID_COLUMNS = 3;
+const GRID_GAP = theme.spacing.xxs;
+
+function GalleryTile({ experience, size }: { experience: ExperienceCardModel; size: number }) {
+  return (
+    <Pressable
+      style={{ width: size, height: size }}
+      // Intentionally a no-op for now — see module doc.
+      onPress={undefined}
+      accessibilityLabel={experience.title}
+    >
+      {experience.coverImage ? (
+        <Image
+          source={{ uri: experience.coverImage.url }}
+          style={styles.tileImage}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+        />
+      ) : (
+        <View style={[styles.tileImage, styles.tileFallback]}>
+          <Icon icon={ImageOff} size="md" color={theme.colors.text.tertiary} />
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
 export default function ProfileScreen() {
   const { signOut, loading: signingOut } = useSignOut();
   const { profile, isLoading, isError, error, isOffline, refetch } = useProfile();
@@ -55,6 +107,10 @@ export default function ProfileScreen() {
   const updateProfileMutation = useUpdateProfile();
   const removeAvatarMutation = useRemoveAvatar();
   const { pickAndUpload, isUploading, stage } = useUploadAvatar();
+  const { width: windowWidth } = useWindowDimensions();
+
+  const gallery = useUserGallery(profile?.id);
+  const { followerCount, followingCount } = useFollowCounts(profile?.id);
 
   const isEditing     = useProfileStore((s) => s.isEditing);
   const draft         = useProfileStore((s) => s.draft);
@@ -63,6 +119,10 @@ export default function ProfileScreen() {
   const cancelEditing = useProfileStore((s) => s.cancelEditing);
   const finishEditing = useProfileStore((s) => s.finishEditing);
 
+  const tileSize =
+    (windowWidth - theme.layout.screenPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
+    GRID_COLUMNS;
+
   const confirmSignOut = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -70,7 +130,35 @@ export default function ProfileScreen() {
     ]);
   };
 
-  // ── Loading state — skeleton resembling the final layout (Design System §34) ──
+  const openFollowList = (kind: 'followers' | 'following') => {
+    if (!profile) return;
+    // Cast: expo-router's generated route types (.expo/types) are built by
+    // the dev server scanning app/ on start — they won't know about the
+    // new follows/[userId].tsx route until `expo start` has run at least
+    // once after this file was added. The path itself is correct (mirrors
+    // every other (modals) route's push shape). Safe to remove this cast
+    // after the first local `expo start`/`expo prebuild` regenerates
+    // .expo/types.
+    router.push({
+      pathname: '/(modals)/follows/[userId]',
+      params: { userId: profile.id, kind },
+    } as never);
+  };
+
+  const renderGalleryItem = useCallback(
+    ({ item }: { item: ExperienceCardModel }) => <GalleryTile experience={item} size={tileSize} />,
+    [tileSize],
+  );
+
+  const keyExtractor = useCallback((item: ExperienceCardModel) => item.id, []);
+
+  const handleGalleryEndReached = useCallback(() => {
+    if (gallery.hasNextPage && !gallery.isFetchingNextPage && !gallery.isError) {
+      gallery.fetchNextPage();
+    }
+  }, [gallery.hasNextPage, gallery.isFetchingNextPage, gallery.isError, gallery.fetchNextPage]);
+
+  // ── Loading state — skeleton resembling the final layout ────────────────────
   if (isLoading) {
     return (
       <ScreenContainer scroll={false}>
@@ -133,18 +221,9 @@ export default function ProfileScreen() {
     );
   };
 
-  return (
-    <ScreenContainer
-      scrollViewProps={{
-        refreshControl: (
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={() => { void refresh(); }}
-            tintColor={theme.colors.brand.primary}
-          />
-        ),
-      }}
-    >
+  // ── Gallery header: avatar, name+pen, username, bio, stats ──────────────────
+  const galleryHeader = (
+    <View>
       {isOffline ? (
         <View style={styles.offlineBanner}>
           <Icon icon={WifiOff} size="sm" color={theme.colors.semantic.warning} />
@@ -177,20 +256,52 @@ export default function ProfileScreen() {
         ) : null}
 
         <View style={styles.nameRow}>
-          <H2 align="center">{profile.displayName}</H2>
+          <H2 align="center" style={styles.displayName}>{profile.displayName}</H2>
           {profile.isVerified ? (
             <Icon icon={BadgeCheck} size="sm" color={theme.colors.brand.primary} accessibilityLabel="Verified" />
           ) : null}
+          {!isEditing ? (
+            <Pressable
+              onPress={handleStartEditing}
+              disabled={isOffline}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit profile"
+              style={styles.editPenButton}
+            >
+              <Icon icon={Pencil} size="sm" color={theme.colors.text.tertiary} />
+            </Pressable>
+          ) : null}
         </View>
         <Body color={theme.colors.text.secondary}>@{profile.username}</Body>
-
-        {profile.city ? (
-          <View style={styles.cityRow}>
-            <Icon icon={MapPin} size="sm" color={theme.colors.text.tertiary} />
-            <BodySmall color={theme.colors.text.secondary}>{profile.city}</BodySmall>
-          </View>
-        ) : null}
       </View>
+
+      {!isEditing ? (
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <H4 align="center" style={styles.statNumber}>{gallery.experiences.length}</H4>
+            <Caption color={theme.colors.text.tertiary}>Experiences</Caption>
+          </View>
+          <Pressable
+            style={styles.statItem}
+            onPress={() => openFollowList('followers')}
+            accessibilityRole="button"
+            accessibilityLabel={`${followerCount} followers`}
+          >
+            <H4 align="center" style={styles.statNumber}>{followerCount}</H4>
+            <Caption color={theme.colors.text.tertiary}>Followers</Caption>
+          </Pressable>
+          <Pressable
+            style={styles.statItem}
+            onPress={() => openFollowList('following')}
+            accessibilityRole="button"
+            accessibilityLabel={`${followingCount} following`}
+          >
+            <H4 align="center" style={styles.statNumber}>{followingCount}</H4>
+            <Caption color={theme.colors.text.tertiary}>Following</Caption>
+          </Pressable>
+        </View>
+      ) : null}
 
       {isEditing && draft ? (
         <View style={styles.editSection}>
@@ -233,27 +344,56 @@ export default function ProfileScreen() {
               No bio yet.
             </Body>
           )}
-          <Button
-            label="Edit Profile"
-            variant="secondary"
-            leftIcon={Pencil}
-            disabled={isOffline}
-            onPress={handleStartEditing}
-            style={styles.editButton}
-          />
         </View>
       )}
 
+      <View style={styles.galleryDivider} />
+    </View>
+  );
 
-      <View style={styles.footer}>
-        <Button
-          label="Log out"
-          variant="destructive"
-          fullWidth
-          loading={signingOut}
-          onPress={confirmSignOut}
-        />
-      </View>
+  return (
+    <ScreenContainer scroll={false} padded={false}>
+      <FlatList
+        data={gallery.experiences}
+        keyExtractor={keyExtractor}
+        renderItem={renderGalleryItem}
+        numColumns={GRID_COLUMNS}
+        columnWrapperStyle={styles.gridRow}
+        ListHeaderComponent={galleryHeader}
+        ListEmptyComponent={
+          !gallery.isLoading ? (
+            <View style={styles.emptyGallery}>
+              <EmptyState
+                icon={Compass}
+                title="No experiences yet"
+                description="Experiences you publish will show up here."
+              />
+            </View>
+          ) : null
+        }
+        ListFooterComponent={
+          <View style={styles.footer}>
+            <Button
+              label="Log out"
+              variant="destructive"
+              fullWidth
+              loading={signingOut}
+              onPress={confirmSignOut}
+            />
+          </View>
+        }
+        onEndReached={handleGalleryEndReached}
+        onEndReachedThreshold={0.5}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.screenPadding}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => { void refresh(); }}
+            tintColor={theme.colors.brand.primary}
+          />
+        }
+      />
     </ScreenContainer>
   );
 }
@@ -261,6 +401,10 @@ export default function ProfileScreen() {
 const AVATAR_DIAMETER = 96;
 
 const styles = StyleSheet.create({
+  screenPadding: {
+    paddingHorizontal: theme.layout.screenPaddingHorizontal,
+    paddingBottom: theme.spacing['4xl'],
+  },
   loadingContainer: {
     flex:              1,
     alignItems:        'center',
@@ -280,6 +424,7 @@ const styles = StyleSheet.create({
     borderRadius:      theme.radius.card,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical:   theme.spacing.xs,
+    marginTop:         theme.spacing.md,
     marginBottom:      theme.spacing.md,
   },
   offlineText: {
@@ -288,6 +433,7 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     gap:        theme.spacing.xxs,
+    paddingTop: theme.spacing.md,
   },
   avatarButton: {
     position:     'relative',
@@ -313,19 +459,20 @@ const styles = StyleSheet.create({
     alignItems:    'center',
     gap:           theme.spacing.xxs,
   },
-  cityRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           theme.spacing.xxs,
-    marginTop:     theme.spacing.xxs,
+  // H2's own preset is 30px — this keeps its bold family/weight but pulls
+  // the size down to h3's 24px, so the name reads a touch less shouty
+  // without losing the bold weight that pairs with statNumber below.
+  displayName: {
+    fontSize: theme.typography.sizes.h3,
+    lineHeight: theme.typography.lineHeights.h3,
+  },
+  editPenButton: {
+    marginLeft: theme.spacing.xxs,
   },
   bioSection: {
     alignItems: 'center',
     gap:        theme.spacing.md,
-    marginTop:  theme.spacing.lg,
-  },
-  editButton: {
-    marginTop: theme.spacing.xs,
+    marginTop:  theme.spacing.sm,
   },
   editSection: {
     marginTop: theme.spacing.lg,
@@ -341,16 +488,45 @@ const styles = StyleSheet.create({
   editActionButton: {
     flex: 1,
   },
-  interestsSection: {
-    marginTop: theme.spacing.xl,
-  },
-  sectionTitle: {
-    marginBottom: theme.spacing.sm,
-  },
-  chipRow: {
+  statsRow: {
     flexDirection: 'row',
-    flexWrap:      'wrap',
-    gap:           theme.spacing.xs,
+    justifyContent: 'center',
+    gap: theme.spacing.xxl,
+    marginTop: theme.spacing.xs,
+    paddingVertical: theme.spacing.xxs,
+  },
+  statItem: {
+    alignItems: 'center',
+    gap: theme.spacing.xxs,
+  },
+  // Same weight/family as the display name (H2 uses the bold heading
+  // preset) — H4's own preset is semiBold, so this overrides just those
+  // two fields on top of it rather than swapping the component, which
+  // would also change the font size.
+  statNumber: {
+    fontFamily: FONT_FAMILY.headingBold,
+    fontWeight: theme.typography.weights.bold,
+  },
+  galleryDivider: {
+    height: theme.borders.width,
+    backgroundColor: theme.colors.neutral.border,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.xxs,
+  },
+  gridRow: {
+    gap: GRID_GAP,
+  },
+  tileImage: {
+    width: '100%',
+    height: '100%',
+  },
+  tileFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.neutral.border,
+  },
+  emptyGallery: {
+    paddingVertical: theme.spacing.xxl,
   },
   footer: {
     paddingTop:    theme.spacing.xxl,

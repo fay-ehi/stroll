@@ -24,10 +24,32 @@
  * Save button is a placeholder per this sprint's brief ("Do not implement
  * save functionality yet") — it's tappable and gives real feedback via
  * the existing Toast system, but persists nothing.
+ *
+ * Sprint 2 Prompt 3 (Feed Performance):
+ *   - Cover image uses `expo-image` (already a dependency, previously
+ *     unused anywhere) instead of React Native's built-in `Image` —
+ *     `cachePolicy="memory-disk"` means a photo scrolled past and back
+ *     into view, or reused between the main feed / Related Experiences /
+ *     Continue Exploring, decodes once and is read from cache everywhere
+ *     after, instead of re-fetching over the network each time. Not
+ *     applied to PlaceImage.tsx or ImageGallery.tsx in this pass — this
+ *     requirement is specifically about the feed, and ExperienceCard is
+ *     the component actually rendered dozens of times in one scrolling
+ *     list; those two are natural candidates for the same change later.
+ *   - The whole component is wrapped in `React.memo` — in a FlatList of
+ *     100+ cards, re-rendering every visible card whenever the list's
+ *     own state changes (e.g. a sibling's image finishing loading) is
+ *     exactly the wasted work this sprint's "avoid unnecessary renders"
+ *     calls out. `ExperienceCardModel` is an immutable value produced
+ *     fresh per query response, so a shallow prop comparison is correct
+ *     here — no custom comparator needed.
+ *   - Fires `experience_opened` (and `recommendation_opened` when
+ *     `source` is `'continue_exploring'`) on tap — see `source` prop.
  */
 
 import React from 'react';
-import { View, Image, Pressable, StyleSheet, type ViewStyle } from 'react-native';
+import { View, Pressable, StyleSheet, type ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Bookmark, Heart, MapPin, BadgeCheck, ImageOff } from 'lucide-react-native';
 
@@ -38,6 +60,7 @@ import { showToast } from '@/stores/toastStore';
 import { hitSlop } from '@/theme/utils';
 import { formatCount } from '@/utils';
 import { ROUTES } from '@/constants/routes';
+import { trackExperienceOpened, trackRecommendationOpened } from '@/lib/analytics';
 import type { ExperienceCardModel } from '@/types/experience';
 
 // ─── Cover Image ────────────────────────────────────────────────────────────────
@@ -51,7 +74,11 @@ interface CoverImageProps {
   aspectRatio: number;
 }
 
-function CoverImage({ uri, accessibilityLabel, aspectRatio }: CoverImageProps) {
+const CoverImage = React.memo(function CoverImage({
+  uri,
+  accessibilityLabel,
+  aspectRatio,
+}: CoverImageProps) {
   const [failed, markFailed] = useImageLoadFailed(uri);
   const showImage = !!uri && !failed;
 
@@ -61,7 +88,9 @@ function CoverImage({ uri, accessibilityLabel, aspectRatio }: CoverImageProps) {
         <Image
           source={{ uri }}
           style={StyleSheet.absoluteFillObject}
-          resizeMode="cover"
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={200}
           accessible
           accessibilityRole="image"
           accessibilityLabel={accessibilityLabel}
@@ -79,11 +108,12 @@ function CoverImage({ uri, accessibilityLabel, aspectRatio }: CoverImageProps) {
       )}
     </View>
   );
-}
+});
 
 // ─── Experience Card ──────────────────────────────────────────────────────────────
 
 export type ExperienceCardVariant = 'standard' | 'featured';
+export type ExperienceCardSource = 'discover_feed' | 'related' | 'continue_exploring';
 
 export interface ExperienceCardProps {
   experience: ExperienceCardModel;
@@ -91,6 +121,8 @@ export interface ExperienceCardProps {
   /** Fixed width — required for 'featured' so it renders correctly inside a horizontal carousel. */
   width?: number;
   style?: ViewStyle;
+  /** Which surface rendered this card — attached to the `experience_opened` analytics event. Defaults to the main feed, the most common case. */
+  source?: ExperienceCardSource;
 }
 
 // Photography must occupy "at least 60%" of the card (Design System §24).
@@ -102,16 +134,24 @@ const COVER_ASPECT_RATIO: Record<ExperienceCardVariant, number> = {
   featured: 16 / 11,
 };
 
-export function ExperienceCard({
+export const ExperienceCard = React.memo(function ExperienceCard({
   experience,
   variant = 'standard',
   width,
   style,
+  source = 'discover_feed',
 }: ExperienceCardProps) {
   const { title, storyPreview, location, category, creator, coverImage, likeCount, featured } =
     experience;
 
   const handlePress = () => {
+    trackExperienceOpened({ experienceId: experience.id, source });
+    if (source === 'continue_exploring') {
+      trackRecommendationOpened({
+        experienceId: experience.id,
+        recommendationType: 'continue_exploring',
+      });
+    }
     router.push(ROUTES.app.experienceDetail(experience.id) as never);
   };
 
@@ -208,7 +248,7 @@ export function ExperienceCard({
       </Card>
     </Pressable>
   );
-}
+});
 
 // ─── Styles ────────────────────────────────────────────────────────────────────
 

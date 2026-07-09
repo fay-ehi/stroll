@@ -35,7 +35,9 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeError, makeError, type StrollError } from '@/lib/errors';
 import { PAGINATION } from '@/constants/app';
-import type { ExperienceFeedRow, DiscoverSortMode } from '@/types/experience';
+import { VALIDATION } from '@/utils';
+import type { PlaceCategoryId } from '@/constants/places';
+import type { ExperienceFeedRow, ExperienceDetailRow, DiscoverSortMode } from '@/types/experience';
 
 // ─── Result Type ───────────────────────────────────────────────────────────────
 
@@ -217,6 +219,176 @@ export async function fetchDiscoverFeedPage(params: {
         : null;
 
     return ok({ rows: page, nextCursor });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Fetch Experience By Id (Sprint 2 Prompt 2 — Experience Details) ────────────
+// A wider select than SELECT_COLUMNS above — the detail screen's header,
+// gallery, description, creator section, and location preview need place
+// address/coordinates/description/gallery and the creator's bio, neither
+// of which the feed ever renders. Kept as its own query+column-list
+// rather than widening SELECT_COLUMNS, so every Discover feed page isn't
+// paying to fetch data it never displays.
+
+const DETAIL_SELECT_COLUMNS = `
+  id, user_id, place_id, city, story, would_recommend, amount_spent, visit_type,
+  good_for_tags, vibe_tags, like_count, comment_count, featured, created_at, updated_at,
+  creator:profiles(id, username, display_name, avatar_url, is_verified, bio),
+  place:places(id, name, slug, city, category, hero_image, address, latitude, longitude, description, gallery),
+  experience_photos(photo_url, position)
+`;
+
+export async function fetchExperienceById(
+  id: string,
+): Promise<ExperiencesResult<ExperienceDetailRow>> {
+  // Reject an obviously-malformed id (a garbled deep link, a stale/typo'd
+  // route param) before it ever reaches the network — this sprint's brief
+  // explicitly calls out "Invalid IDs" as their own error case, distinct
+  // from "not found" (a well-formed id for an experience that's been
+  // deleted) and from a genuine network/server failure.
+  if (!VALIDATION.isValidUuid(id)) {
+    return fail(makeError('VALIDATION_ERROR', `"${id}" is not a valid experience id.`));
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('experiences')
+      .select(DETAIL_SELECT_COLUMNS)
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) return fail(error);
+    if (!data) return fail(makeError('NOT_FOUND', `Experience ${id} was not found.`));
+
+    return ok(data as unknown as ExperienceDetailRow);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Fetch Related Experiences (Sprint 2 Prompt 2) ──────────────────────────────
+// Single strategy, deliberately not blended with "nearby" or "similar
+// tags" — see the RelatedExperiencesParams doc in types/experience.ts.
+// Filtering by the embedded place's category requires `!inner` (a plain
+// left-embed's dot-notation filter only filters rows *within* the embed,
+// not the top-level query) — a one-off cost worth paying here since,
+// unlike the main feed, this isn't a hot, repeatedly-paginated path.
+
+export async function fetchRelatedExperiences(params: {
+  experienceId: string;
+  category: PlaceCategoryId;
+  city: string;
+  limit?: number;
+}): Promise<ExperiencesResult<ExperienceFeedRow[]>> {
+  try {
+    const { data, error } = await supabase
+      .from('experiences')
+      .select(
+        `
+          id, user_id, place_id, city, story, would_recommend, amount_spent, visit_type,
+          good_for_tags, vibe_tags, like_count, comment_count, featured, created_at, updated_at,
+          creator:profiles(id, username, display_name, avatar_url, is_verified),
+          place:places!inner(id, name, slug, city, category, hero_image),
+          experience_photos(photo_url, position)
+        `,
+      )
+      .eq('city', params.city)
+      .eq('place.category', params.category)
+      .neq('id', params.experienceId)
+      .order('created_at', { ascending: false })
+      .limit(params.limit ?? 10);
+
+    if (error) return fail(error);
+    return ok(data as unknown as ExperienceFeedRow[]);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Fetch Creator Experience Count (Sprint 2 Prompt 2) ─────────────────────────
+// Backs CreatorDetail.totalExperiences — deliberately a separate, tiny
+// `head: true` count query rather than a column on the main detail
+// select, so a slow aggregate can never block the header/gallery/
+// description from rendering. See CreatorDetail's doc in types/experience.ts.
+
+export async function fetchCreatorExperienceCount(
+  userId: string,
+): Promise<ExperiencesResult<number>> {
+  try {
+    const { count, error } = await supabase
+      .from('experiences')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    if (error) return fail(error);
+    return ok(count ?? 0);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Fetch Experiences By User ──────────────────────────────────────────────────
+// Backs the Profile screen's gallery of a user's own published
+// experiences — the "experiences authored by this user" list
+// queryKeys.experiences.byUser() was already reserved for (see that
+// key's own comment). Cursor-paginated the same way fetchDiscoverFeedPage
+// is, reusing that function's own encodeCursor/decodeCursor/
+// buildKeysetFilter helpers rather than a second cursor implementation —
+// but simpler: no sort mode, since a profile gallery is always
+// newest-first, and no personalization pass, since re-ranking someone's
+// own gallery by their own interests doesn't make sense the way
+// re-ranking a discovery feed does.
+
+interface UserGalleryCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface UserExperiencesPage {
+  rows: ExperienceFeedRow[];
+  nextCursor: string | null;
+}
+
+export async function fetchExperiencesByUser(params: {
+  userId: string;
+  limit?: number;
+  cursor?: string | null;
+}): Promise<ExperiencesResult<UserExperiencesPage>> {
+  try {
+    const limit = params.limit ?? DEFAULT_LIMIT;
+    let query = supabase
+      .from('experiences')
+      .select(SELECT_COLUMNS)
+      .eq('user_id', params.userId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(limit);
+
+    if (params.cursor) {
+      const cursor = decodeCursor<UserGalleryCursor>(params.cursor);
+      if (cursor) {
+        query = query.or(
+          buildKeysetFilter([
+            { name: 'created_at', value: cursor.createdAt },
+            { name: 'id', value: cursor.id },
+          ]),
+        );
+      }
+    }
+
+    const { data, error } = await query;
+    if (error) return fail(error);
+
+    const rows = data as unknown as ExperienceFeedRow[];
+    const last = rows[rows.length - 1];
+    const nextCursor =
+      rows.length === limit && last
+        ? encodeCursor({ createdAt: last.created_at, id: last.id })
+        : null;
+
+    return ok({ rows, nextCursor });
   } catch (err) {
     return fail(err);
   }
