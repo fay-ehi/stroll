@@ -90,6 +90,12 @@ export function useExperienceDetail(id: string): UseExperienceDetailResult {
       if (!result.ok) throw result.error;
       return toExperienceDetailModel(result.data);
     },
+    // Sprint 3 Prompt 3 — useExperienceCreation.ts calls this hook with
+    // `experienceId ?? ''` so the hook can be called unconditionally
+    // (Rules of Hooks) even in 'create' mode, where there's no id yet.
+    // Without this guard that would fire a real (and pointless) network
+    // request with an empty id on every single Create session.
+    enabled: id.length > 0,
     staleTime: STALE_TIMES.detail,
     retry: isRetryableStrollError,
   });

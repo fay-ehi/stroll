@@ -45,6 +45,7 @@ export default function ModalsLayout() {
       <Stack.Screen name="place-search" />
       <Stack.Screen name="share" />
       <Stack.Screen name="follows/[userId]" />
+      <Stack.Screen name="drafts" />
     </Stack>
   );
 }

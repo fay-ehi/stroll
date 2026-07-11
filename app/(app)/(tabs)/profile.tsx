@@ -28,19 +28,23 @@
  *     table exists in this codebase yet, so those numbers come from a
  *     mock service until a future sprint wires the real thing. Nothing
  *     else on this screen needs to change when that happens.
- *   - Tapping a gallery photo currently does nothing (per product
- *     direction — Experience Detail linking is a future pass).
+ *   - Sprint 3 Prompt 3 (Creator Experience Management): the gallery grid
+ *     now also carries a Drafts tile (always first — see
+ *     src/components/profile/DraftsTile.tsx) and each published tile's
+ *     tap now opens Experience Details, with a management action sheet
+ *     (Edit / Delete — src/components/profile/ExperienceGridTile.tsx)
+ *     reachable from a small per-tile button. Superseded the "Tapping a
+ *     gallery photo currently does nothing" line this doc used to have.
  *
  * Log Out lives here (not Settings) for now, since Settings is still a
  * placeholder (Sprint 4). Move this into Settings once that screen ships
  * — left as-is per product direction ("temporarily there").
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, Pressable, FlatList, StyleSheet, Alert, RefreshControl, useWindowDimensions } from 'react-native';
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { Camera, BadgeCheck, WifiOff, AlertCircle, Pencil, ImageOff, Compass } from 'lucide-react-native';
+import { Camera, BadgeCheck, WifiOff, AlertCircle, Pencil, Compass } from 'lucide-react-native';
 
 import {
   ScreenContainer, H2, H4, Body, Caption,
@@ -48,6 +52,7 @@ import {
   Skeleton, SkeletonCircle, SkeletonText,
   EmptyState,
 } from '@/components/ui';
+import { DraftsTile, ExperienceGridTile } from '@/components/profile';
 import { useSignOut } from '@/hooks/useAuth';
 import {
   useProfile,
@@ -56,10 +61,12 @@ import {
   useUploadAvatar,
   useRemoveAvatar,
 } from '@/hooks/useProfile';
-import { useUserGallery } from '@/hooks/useUserGallery';
+import { useUserGallery, useDeleteExperience } from '@/hooks/useUserGallery';
+import { useDraftQuery } from '@/hooks/useExperienceDrafts';
 import { useFollowCounts } from '@/hooks/useFollows';
 import { useProfileStore, type AvatarUploadStage } from '@/stores/profileStore';
 import { PROFILE_LIMITS } from '@/constants/app';
+import { ROUTES, MODAL_ROUTES } from '@/constants/routes';
 import { theme, FONT_FAMILY } from '@/theme';
 import type { ExperienceCardModel } from '@/types/experience';
 
@@ -75,30 +82,19 @@ function uploadStageLabel(stage: AvatarUploadStage): string {
 
 const GRID_COLUMNS = 3;
 const GRID_GAP = theme.spacing.xxs;
+/** How many skeleton cells to show while the gallery's first page is loading — matches a typical first-page row count without needing to know the real count in advance. */
+const GALLERY_SKELETON_COUNT = 5;
 
-function GalleryTile({ experience, size }: { experience: ExperienceCardModel; size: number }) {
-  return (
-    <Pressable
-      style={{ width: size, height: size }}
-      // Intentionally a no-op for now — see module doc.
-      onPress={undefined}
-      accessibilityLabel={experience.title}
-    >
-      {experience.coverImage ? (
-        <Image
-          source={{ uri: experience.coverImage.url }}
-          style={styles.tileImage}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-        />
-      ) : (
-        <View style={[styles.tileImage, styles.tileFallback]}>
-          <Icon icon={ImageOff} size="md" color={theme.colors.text.tertiary} />
-        </View>
-      )}
-    </Pressable>
-  );
-}
+// ─── Grid Item (Sprint 3 Prompt 3) ─────────────────────────────────────────────
+// The creator grid mixes three different kinds of cell — the Drafts tile
+// (always first, requirement #1), loading placeholders, and published
+// experiences — so the FlatList's `data` is this discriminated union
+// rather than `ExperienceCardModel[]` directly.
+
+type ProfileGridItem =
+  | { type: 'drafts' }
+  | { type: 'skeleton'; key: string }
+  | { type: 'experience'; experience: ExperienceCardModel };
 
 export default function ProfileScreen() {
   const { signOut, loading: signingOut } = useSignOut();
@@ -111,6 +107,11 @@ export default function ProfileScreen() {
 
   const gallery = useUserGallery(profile?.id);
   const { followerCount, followingCount } = useFollowCounts(profile?.id);
+  // Named `experienceDraft` (not `draft`) to stay clear of the profile
+  // EDIT draft below (`useProfileStore((s) => s.draft)`) — two entirely
+  // different domains that happen to share the word "draft".
+  const { draft: experienceDraft, isLoading: isDraftLoading } = useDraftQuery(profile?.id);
+  const { deleteExperience } = useDeleteExperience(profile?.id);
 
   const isEditing     = useProfileStore((s) => s.isEditing);
   const draft         = useProfileStore((s) => s.draft);
@@ -145,12 +146,79 @@ export default function ProfileScreen() {
     } as never);
   };
 
-  const renderGalleryItem = useCallback(
-    ({ item }: { item: ExperienceCardModel }) => <GalleryTile experience={item} size={tileSize} />,
-    [tileSize],
+  // ── Creator content grid (Sprint 3 Prompt 3) ──────────────────────────────
+  // The Drafts tile is always first (requirement #1), regardless of
+  // whether a draft currently exists — DraftsTile itself renders the
+  // empty/loading/has-a-draft states. While the published-experiences
+  // page is still loading, skeleton cells stand in for it — see
+  // GALLERY_SKELETON_COUNT's doc above.
+
+  const gridData: ProfileGridItem[] = useMemo(() => {
+    const items: ProfileGridItem[] = [{ type: 'drafts' }];
+    if (gallery.isLoading) {
+      for (let i = 0; i < GALLERY_SKELETON_COUNT; i++) {
+        items.push({ type: 'skeleton', key: `skeleton-${i}` });
+      }
+    } else {
+      for (const experience of gallery.experiences) {
+        items.push({ type: 'experience', experience });
+      }
+    }
+    return items;
+  }, [gallery.isLoading, gallery.experiences]);
+
+  const handleOpenDrafts = useCallback(() => {
+    router.push(MODAL_ROUTES.drafts as never);
+  }, []);
+
+  const handleOpenExperience = useCallback((experience: ExperienceCardModel) => {
+    router.push(ROUTES.app.experienceDetail(experience.id) as never);
+  }, []);
+
+  const handleEditExperience = useCallback((experience: ExperienceCardModel) => {
+    router.push(MODAL_ROUTES.editExperience(experience.id) as never);
+  }, []);
+
+  const handleDeleteExperience = useCallback(
+    (experience: ExperienceCardModel) => {
+      deleteExperience(experience.id);
+    },
+    [deleteExperience],
   );
 
-  const keyExtractor = useCallback((item: ExperienceCardModel) => item.id, []);
+  const renderGridItem = useCallback(
+    ({ item }: { item: ProfileGridItem }) => {
+      if (item.type === 'drafts') {
+        return (
+          <DraftsTile
+            size={tileSize}
+            draft={experienceDraft}
+            isLoading={isDraftLoading}
+            onPress={handleOpenDrafts}
+          />
+        );
+      }
+      if (item.type === 'skeleton') {
+        return <Skeleton width={tileSize} height={tileSize} borderRadius={0} />;
+      }
+      return (
+        <ExperienceGridTile
+          experience={item.experience}
+          size={tileSize}
+          onPress={handleOpenExperience}
+          onEdit={handleEditExperience}
+          onDelete={handleDeleteExperience}
+        />
+      );
+    },
+    [tileSize, experienceDraft, isDraftLoading, handleOpenDrafts, handleOpenExperience, handleEditExperience, handleDeleteExperience],
+  );
+
+  const gridKeyExtractor = useCallback((item: ProfileGridItem) => {
+    if (item.type === 'drafts') return 'drafts-tile';
+    if (item.type === 'skeleton') return item.key;
+    return item.experience.id;
+  }, []);
 
   const handleGalleryEndReached = useCallback(() => {
     if (gallery.hasNextPage && !gallery.isFetchingNextPage && !gallery.isError) {
@@ -354,25 +422,31 @@ export default function ProfileScreen() {
   return (
     <ScreenContainer scroll={false} padded={false}>
       <FlatList
-        data={gallery.experiences}
-        keyExtractor={keyExtractor}
-        renderItem={renderGalleryItem}
+        data={gridData}
+        keyExtractor={gridKeyExtractor}
+        renderItem={renderGridItem}
         numColumns={GRID_COLUMNS}
         columnWrapperStyle={styles.gridRow}
         ListHeaderComponent={galleryHeader}
-        ListEmptyComponent={
-          !gallery.isLoading ? (
-            <View style={styles.emptyGallery}>
-              <EmptyState
-                icon={Compass}
-                title="No experiences yet"
-                description="Experiences you publish will show up here."
-              />
-            </View>
-          ) : null
-        }
         ListFooterComponent={
           <View style={styles.footer}>
+            {/*
+              Requirement #1's "Empty state" for Published Experiences —
+              rendered here rather than via ListEmptyComponent because
+              `data` (gridData) is never actually empty: the Drafts tile
+              always occupies the first cell (requirement #1's "Always
+              appear first"), regardless of whether there are any
+              published experiences yet.
+            */}
+            {!gallery.isLoading && gallery.experiences.length === 0 ? (
+              <View style={styles.emptyGallery}>
+                <EmptyState
+                  icon={Compass}
+                  title="No experiences yet"
+                  description="Experiences you publish will show up here."
+                />
+              </View>
+            ) : null}
             <Button
               label="Log out"
               variant="destructive"
@@ -515,15 +589,6 @@ const styles = StyleSheet.create({
   },
   gridRow: {
     gap: GRID_GAP,
-  },
-  tileImage: {
-    width: '100%',
-    height: '100%',
-  },
-  tileFallback: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.neutral.border,
   },
   emptyGallery: {
     paddingVertical: theme.spacing.xxl,

@@ -70,11 +70,24 @@ export const APP_ROUTES = {
 
 export const MODAL_ROUTES = {
   createExperience: '/(modals)/create-experience',
+  /**
+   * Sprint 3 Prompt 3 — Edit Experience. Deliberately NOT a separate route
+   * file/UI — reuses create-experience.tsx's exact same wizard, opened with
+   * an `experienceId` query param it reads via useLocalSearchParams to
+   * switch into edit mode (see useExperienceCreation.ts). A query param
+   * rather than a `[experienceId]` path segment (the pattern `comments`
+   * below uses) because this is the same screen component as
+   * `createExperience` above, not a distinct one — a second dynamic-segment
+   * file would just be a second entry point into identical UI.
+   */
+  editExperience:   (experienceId: string) => `/(modals)/create-experience?experienceId=${experienceId}` as const,
   createCollection: '/(modals)/create-collection',
   addToCollection:  '/(modals)/add-to-collection',
   comments:         (experienceId: string) => `/(modals)/comments/${experienceId}` as const,
   placeSearch:      '/(modals)/place-search',
   share:            '/(modals)/share',
+  /** Sprint 3 Prompt 3 — opened only from the Profile screen's Drafts tile, never a persistent nav destination (see drafts.tsx's module doc). */
+  drafts:           '/(modals)/drafts',
 } as const;
 
 // ─── Combined Export ────────────────────────────────────────────────────────────

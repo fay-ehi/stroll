@@ -31,7 +31,10 @@ export type AnalyticsEventName =
   | 'experience_creation_started'
   | 'experience_draft_step_completed'
   | 'experience_draft_discarded'
-  | 'experience_published';
+  | 'experience_published'
+  | 'experience_edit_started'
+  | 'experience_updated'
+  | 'experience_deleted';
 
 export interface AnalyticsEventProperties {
   experience_opened: {
@@ -50,6 +53,12 @@ export interface AnalyticsEventProperties {
   experience_draft_discarded: { draftId: string; step: string };
   /** Fired once, on a successful Publish (Sprint 3 Prompt 2) — not on a failed attempt, so this stays a clean "experiences created" count rather than counting retries. */
   experience_published: { draftId: string; experienceId: string; placeId: string; photoCount: number };
+  /** Fired once per wizard mount when an edit session is opened (Sprint 3 Prompt 3) — the edit-mode counterpart to experience_creation_started. */
+  experience_edit_started: { experienceId: string };
+  /** Fired once, on a successful Save Changes to a published experience — not on a failed attempt, mirroring experience_published's own reasoning. */
+  experience_updated: { experienceId: string; photoCount: number };
+  /** Fired once, on a successful delete from the creator Profile grid. */
+  experience_deleted: { experienceId: string };
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
@@ -107,4 +116,22 @@ export function trackExperiencePublished(
   properties: AnalyticsEventProperties['experience_published'],
 ): void {
   trackEvent('experience_published', properties);
+}
+
+export function trackExperienceEditStarted(
+  properties: AnalyticsEventProperties['experience_edit_started'],
+): void {
+  trackEvent('experience_edit_started', properties);
+}
+
+export function trackExperienceUpdated(
+  properties: AnalyticsEventProperties['experience_updated'],
+): void {
+  trackEvent('experience_updated', properties);
+}
+
+export function trackExperienceDeleted(
+  properties: AnalyticsEventProperties['experience_deleted'],
+): void {
+  trackEvent('experience_deleted', properties);
 }

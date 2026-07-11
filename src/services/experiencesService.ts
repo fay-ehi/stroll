@@ -38,7 +38,6 @@
 
 import { supabase } from '@/lib/supabase';
 import { normalizeError, makeError, type StrollError } from '@/lib/errors';
-import { devLog } from '@/lib/config';
 import { PAGINATION, IMAGE_CONFIG } from '@/constants/app';
 import { VALIDATION } from '@/utils';
 import type { PlaceCategoryId } from '@/constants/places';
@@ -456,6 +455,173 @@ export async function uploadExperiencePhoto(params: {
 
     const { data } = supabase.storage.from(IMAGE_CONFIG.EXPERIENCE_BUCKET).getPublicUrl(filePath);
     return ok(data.publicUrl);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Update Experience (Sprint 3 Prompt 3 — Creator Editing) ─────────────────────
+// Mirrors createExperience's shape/approach — the same two-write
+// (experience row + experience_photos rows), same lack of a Postgres
+// transaction/RPC, same "delete + reinsert" treatment of experience_photos
+// rather than diffing individual rows for insert/update/delete: simpler,
+// and cheap, since a photo row is just (experience_id, photo_url,
+// position). Callers (see usePublishExperience's edit-mode path in
+// useExperienceCreation.ts) are responsible for only including
+// already-uploaded/newly-uploaded URLs in `photoUrls` — "Upload only newly
+// added media, preserve unchanged media" (this sprint's brief) is achieved
+// upstream, by never re-uploading a photo that already has a `remoteUrl`
+// (the same `status !== 'uploaded'` filter usePublishExperience already
+// uses for Create) — this function doesn't know or care which URLs are new.
+//
+// `userId` is required and filtered on (`.eq('user_id', userId)`) as
+// defense-in-depth alongside RLS — "Only creators may delete their own
+// experiences" (this sprint's brief says this about Delete, and the same
+// rule applies to Edit) should already be enforced by a Supabase RLS
+// policy on `experiences`, but scoping the update's WHERE clause here
+// means a missing/misconfigured policy fails closed (zero rows updated,
+// surfaced as NOT_FOUND) instead of silently succeeding against someone
+// else's row.
+
+export interface UpdateExperienceInput {
+  experienceId:   string;
+  userId:         string;
+  placeId:        string;
+  city:           string;
+  story:          string;
+  amountSpent:    AmountSpent | null;
+  visitType:      VisitType | null;
+  wouldRecommend: boolean | null;
+  goodForTags:    GoodForTag[];
+  vibeTags:       VibeTag[];
+  /** Already in final display order — index 0 becomes `experience_photos.position` 0, the cover. A mix of preserved (already-remote) and newly-uploaded URLs. */
+  photoUrls:      string[];
+}
+
+export async function updateExperience(
+  input: UpdateExperienceInput,
+): Promise<ExperiencesResult<string>> {
+  try {
+    const { data: updated, error: updateError } = await supabase
+      .from('experiences')
+      .update({
+        place_id:        input.placeId,
+        city:            input.city,
+        story:           input.story,
+        amount_spent:    input.amountSpent,
+        visit_type:      input.visitType,
+        would_recommend: input.wouldRecommend,
+        good_for_tags:   input.goodForTags,
+        vibe_tags:       input.vibeTags,
+      })
+      .eq('id', input.experienceId)
+      .eq('user_id', input.userId)
+      .select('id')
+      .maybeSingle();
+
+    if (updateError) return fail(updateError);
+    if (!updated) {
+      return fail(
+        makeError(
+          'NOT_FOUND',
+          `Experience ${input.experienceId} was not found, or you don't have permission to edit it.`,
+        ),
+      );
+    }
+
+    // Replace the photo set wholesale — see module doc above for why this
+    // doesn't try to diff individual rows.
+    const { error: deletePhotosError } = await supabase
+      .from('experience_photos')
+      .delete()
+      .eq('experience_id', input.experienceId);
+
+    if (deletePhotosError) return fail(deletePhotosError);
+
+    if (input.photoUrls.length > 0) {
+      const photoRows = input.photoUrls.map((photo_url, position) => ({
+        experience_id: input.experienceId,
+        photo_url,
+        position,
+      }));
+
+      const { error: insertPhotosError } = await supabase.from('experience_photos').insert(photoRows);
+
+      if (insertPhotosError) {
+        // Unlike createExperience, there's no clean rollback here — the
+        // experience row itself was already a valid, previously-published
+        // row before this update started, so deleting it would be far
+        // worse than leaving it temporarily photo-less. Surface the
+        // failure instead; nothing the user typed is lost either way — an
+        // edit session lives entirely in memory (see
+        // experienceCreationStore.ts's `mode` doc), so "try again" just
+        // means pressing Save again.
+        return fail(
+          makeError('SERVER_ERROR', "Your changes couldn't be fully saved. Please try again."),
+        );
+      }
+    }
+
+    return ok(updated.id);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Delete Experience (Sprint 3 Prompt 3 — Creator Management) ──────────────────
+// Returns the deleted row's photo URLs so the caller can best-effort clean
+// up EXPERIENCE_BUCKET storage objects afterwards (see
+// deleteExperiencePhoto below) — this function itself only ever deletes
+// database rows; it doesn't touch Storage directly, the same division of
+// labor createExperience's compensating rollback already uses.
+//
+// experience_photos rows are deleted explicitly rather than assumed to
+// cascade — safe either way (an explicit delete of zero rows is a no-op if
+// a cascade already handled it), and doesn't depend on a migration this
+// sprint has no visibility into.
+
+export interface DeleteExperienceResult {
+  photoUrls: string[];
+}
+
+export async function deleteExperience(
+  experienceId: string,
+  userId: string,
+): Promise<ExperiencesResult<DeleteExperienceResult>> {
+  try {
+    const { data: photoRows, error: fetchError } = await supabase
+      .from('experience_photos')
+      .select('photo_url')
+      .eq('experience_id', experienceId);
+
+    if (fetchError) return fail(fetchError);
+
+    const { error: deletePhotosError } = await supabase
+      .from('experience_photos')
+      .delete()
+      .eq('experience_id', experienceId);
+
+    if (deletePhotosError) return fail(deletePhotosError);
+
+    const { data: deleted, error: deleteError } = await supabase
+      .from('experiences')
+      .delete()
+      .eq('id', experienceId)
+      .eq('user_id', userId) // defense-in-depth alongside RLS — see updateExperience's doc above.
+      .select('id')
+      .maybeSingle();
+
+    if (deleteError) return fail(deleteError);
+    if (!deleted) {
+      return fail(
+        makeError(
+          'NOT_FOUND',
+          `Experience ${experienceId} was not found, or you don't have permission to delete it.`,
+        ),
+      );
+    }
+
+    return ok({ photoUrls: (photoRows ?? []).map((r) => r.photo_url) });
   } catch (err) {
     return fail(err);
   }

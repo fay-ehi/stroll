@@ -27,11 +27,22 @@
  *
  * All state lives behind useExperienceCreation / usePublishExperience —
  * this file is presentation + navigation-guard wiring only.
+ *
+ * ── Edit mode ──
+ * This exact same screen also handles editing an already-published
+ * experience — opened via MODAL_ROUTES.editExperience(id), i.e. this same
+ * route with an `?experienceId=` query param, read below via
+ * useLocalSearchParams. This must NOT be a separate editing UI: every
+ * step component, WizardShell, and the Photos step (PhotoGridPicker,
+ * reused unmodified for full media management — add/remove/reorder/
+ * change cover) are all reused completely as-is. Only this file's copy,
+ * exit-confirmation wording, and post-save navigation branch on mode —
+ * see `isEditMode` below.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
-import { router, useNavigation, Redirect } from 'expo-router';
+import { router, useNavigation, useLocalSearchParams, Redirect } from 'expo-router';
 import { AlertTriangle } from 'lucide-react-native';
 
 import { useAuthStore, selectIsAuthenticated } from '@/stores/authStore';
@@ -51,6 +62,11 @@ import type { CreationStep } from '@/constants/experienceCreation';
 
 export default function CreateExperienceScreen() {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);
+  const { experienceId: experienceIdParam } = useLocalSearchParams<{ experienceId?: string }>();
+  // useLocalSearchParams can hand back an array if a param repeats in the
+  // URL — collapses that to the plain string | undefined the rest of this
+  // screen (and useExperienceCreation) expects.
+  const experienceId = Array.isArray(experienceIdParam) ? experienceIdParam[0] : experienceIdParam;
 
   // (modals) is a sibling of (app), not nested inside it, so it doesn't
   // inherit (app)/_layout.tsx's route guard — mirrors that guard's own
@@ -60,32 +76,36 @@ export default function CreateExperienceScreen() {
     return <Redirect href={ROUTES.auth.welcome as never} />;
   }
 
-  return <CreateExperienceWizard />;
+  return <CreateExperienceWizard experienceId={experienceId} />;
 }
 
 // ─── Step Copy ────────────────────────────────────────────────────────────────
 // 'photos' has no entry — PhotoGridPicker.tsx owns its own header, not
 // WizardShell, so it never reads this.
 
-const STEP_COPY: Record<Exclude<CreationStep, 'photos'>, { title: string; subtitle: string }> = {
-  compose: {
-    title: 'Tell people about it',
-    subtitle: 'Add the place and a caption — everything else is optional.',
-  },
-  preview: {
-    title: 'Preview',
-    subtitle: 'Here\u2019s how your experience will look once published.',
-  },
-};
+function getStepCopy(step: Exclude<CreationStep, 'photos'>, isEditMode: boolean): { title: string; subtitle: string } {
+  if (step === 'compose') {
+    return isEditMode
+      ? { title: 'Edit the details', subtitle: 'Update the place, caption, or anything else about this experience.' }
+      : { title: 'Tell people about it', subtitle: 'Add the place and a caption — everything else is optional.' };
+  }
+  return isEditMode
+    ? { title: 'Preview', subtitle: 'Here\u2019s how your changes will look once saved.' }
+    : { title: 'Preview', subtitle: 'Here\u2019s how your experience will look once published.' };
+}
 
-function CreateExperienceWizard() {
+function CreateExperienceWizard({ experienceId }: { experienceId?: string }) {
   const navigation = useNavigation();
   const [attempted, setAttempted] = useState(false);
   const { profile } = useProfile();
+  const isEditMode = !!experienceId;
 
   const {
     status,
     draft,
+    mode,
+    sourceExperienceId,
+    sourceError,
     currentStep,
     stepIndex,
     stepCount,
@@ -114,17 +134,17 @@ function CreateExperienceWizard() {
     handleBack,
     handleSaveAndExit,
     handleDiscard,
-  } = useExperienceCreation();
+  } = useExperienceCreation(experienceId);
 
   const { startPublish, isPublishing } = usePublishExperience();
 
   // Set synchronously, in the same tick as router.back() below, right
-  // before we leave for a successfully-started publish — a ref rather
-  // than reading `isPublishing` (mutation.isPending) in the listener,
-  // because that's React state: it wouldn't necessarily reflect
-  // mutation.mutate() having just been called within the very same
-  // synchronous handler that also calls router.back() a line later. The
-  // `beforeRemove` event fires synchronously off that same call, so a
+  // before we leave for a successfully-started publish/save — a ref
+  // rather than reading `isPublishing` (mutation.isPending) in the
+  // listener, because that's React state: it wouldn't necessarily
+  // reflect mutation.mutate() having just been called within the very
+  // same synchronous handler that also calls router.back() a line later.
+  // The `beforeRemove` event fires synchronously off that same call, so a
   // ref (always current, no render lag) is the only thing that's
   // guaranteed to be set in time.
   const isLeavingForPublishRef = useRef(false);
@@ -147,7 +167,50 @@ function CreateExperienceWizard() {
     return filtered;
   }, [attempted, stepErrors, draft]);
 
+  // Validates, then leaves immediately rather than waiting for the
+  // upload+publish/update round trip to finish — see
+  // usePublishExperience's doc (useExperienceCreation.ts) for why. The
+  // info toast is the only feedback while that continues in the
+  // background; the success/failure toast follows once it's actually
+  // done, wherever the user has navigated to by then. Shared between the
+  // footer's Publish/Save Changes button and the exit-confirmation
+  // dialog's "Save Changes" option (edit mode) — same action either way.
+  const commitAndLeave = useCallback(() => {
+    const started = startPublish();
+    if (!started) {
+      setAttempted(true);
+      return;
+    }
+
+    isLeavingForPublishRef.current = true;
+    showToast({
+      type: 'info',
+      message: isEditMode
+        ? 'Saving your changes…'
+        : 'Publishing your experience… this can take a moment if you added photos.',
+    });
+    router.back();
+    if (isEditMode && sourceExperienceId) {
+      router.push(ROUTES.app.experienceDetail(sourceExperienceId) as never);
+    } else {
+      router.push(TAB_ROUTES.discover as never);
+    }
+  }, [startPublish, isEditMode, sourceExperienceId]);
+
   const confirmExit = useCallback(() => {
+    if (isEditMode) {
+      Alert.alert(
+        'Save changes?',
+        "You have unsaved changes. You can save them now, or discard them.",
+        [
+          { text: 'Keep Editing', style: 'cancel' },
+          { text: 'Discard Changes', style: 'destructive', onPress: () => { void handleDiscard(); } },
+          { text: 'Save Changes', onPress: commitAndLeave },
+        ]
+      );
+      return;
+    }
+
     Alert.alert(
       'Save this draft?',
       "You have unsaved changes. You can save your draft and finish later, or discard it.",
@@ -157,7 +220,7 @@ function CreateExperienceWizard() {
         { text: 'Save & Exit', onPress: () => { void handleSaveAndExit(); } },
       ]
     );
-  }, [handleDiscard, handleSaveAndExit]);
+  }, [isEditMode, handleDiscard, handleSaveAndExit, commitAndLeave]);
 
   const handleClose = useCallback(() => {
     if (dirty) {
@@ -171,12 +234,12 @@ function CreateExperienceWizard() {
   // this event before the screen is actually removed — intercepting it
   // here means Requirement #9 (Exit Confirmation) applies no matter how
   // the user tries to leave, not just via the header's close button.
-  // Guarded on `isLeavingForPublishRef` too — a successful Publish now
-  // navigates away immediately (see onPressPublish below), while `dirty`
-  // is still true (the draft isn't cleared until the mutation's
-  // onSuccess, which hasn't run yet at that point) — without this, our
-  // own publish-triggered navigation would trip this exact guard and pop
-  // "Save this draft?" over what the user just confirmed with Publish.
+  // Guarded on `isLeavingForPublishRef` too — a successful Publish/Save
+  // now navigates away immediately (see commitAndLeave above), while
+  // `dirty` is still true (the session isn't cleared until the
+  // mutation's onSuccess, which hasn't run yet at that point) — without
+  // this, our own navigation would trip this exact guard and pop "Save
+  // changes?" over what the user just confirmed.
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       if (!dirty || isLeavingForPublishRef.current) return;
@@ -194,34 +257,37 @@ function CreateExperienceWizard() {
     handleNext();
   }, [canProceed, handleNext]);
 
-  // Validates, then leaves for Discover immediately rather than waiting
-  // for the upload+publish round trip to finish — see
-  // usePublishExperience's doc (useExperienceCreation.ts) for why. The
-  // "Publishing…" toast is the only feedback while that continues in the
-  // background; the success/failure toast follows once it's actually
-  // done, wherever the user has navigated to by then.
-  const onPressPublish = useCallback(() => {
-    const started = startPublish();
-    if (!started) {
-      setAttempted(true);
-      return;
-    }
-
-    isLeavingForPublishRef.current = true;
-    showToast({
-      type: 'info',
-      message: 'Publishing your experience… this can take a moment if you added photos.',
-    });
-    router.back();
-    router.push(TAB_ROUTES.discover as never);
-  }, [startPublish]);
-
   // ── Initial draft loading ───────────────────────────────────────────────
+  // In edit mode, also waits for the source experience to finish fetching
+  // AND for the store to have actually seeded from it (`mode === 'edit' &&
+  // sourceExperienceId === experienceId`) — guards against a one-tick
+  // flash of a stale 'create' session's content if one happened to be
+  // loaded already (see useExperienceCreation.ts's edit-seed effect).
 
-  if (status === 'idle' || status === 'loading') {
+  const isSeeded = !isEditMode || (mode === 'edit' && sourceExperienceId === experienceId);
+
+  // Only fatal before the draft has actually loaded — once `isSeeded`,
+  // the in-memory draft is authoritative for this session; a later
+  // background refetch of the source experience failing (e.g. a
+  // transient network blip) shouldn't yank the user out of an
+  // already-in-progress edit.
+  if (isEditMode && sourceError && !isSeeded) {
     return (
       <ScreenContainer scroll={false}>
-        <FullScreenLoading label="Loading your draft…" />
+        <EmptyState
+          icon={AlertTriangle}
+          title="Something went wrong"
+          description="We couldn't load this experience. Please try again."
+          action={{ label: 'Go back', onPress: () => router.back(), variant: 'secondary' }}
+        />
+      </ScreenContainer>
+    );
+  }
+
+  if (status === 'idle' || status === 'loading' || !isSeeded) {
+    return (
+      <ScreenContainer scroll={false}>
+        <FullScreenLoading label={isEditMode ? 'Loading your experience…' : 'Loading your draft…'} />
       </ScreenContainer>
     );
   }
@@ -234,7 +300,7 @@ function CreateExperienceWizard() {
         <EmptyState
           icon={AlertTriangle}
           title="Something went wrong"
-          description="We couldn't load your draft. Please try again."
+          description={isEditMode ? "We couldn't load this experience. Please try again." : "We couldn't load your draft. Please try again."}
           action={{ label: 'Go back', onPress: () => router.back(), variant: 'secondary' }}
         />
       </ScreenContainer>
@@ -242,7 +308,9 @@ function CreateExperienceWizard() {
   }
 
   // ── Photos step — its own full-screen Cancel/New Post/Next header, not
-  //    WizardShell (see PhotoGridPicker.tsx's doc for why) ─────────────────
+  //    WizardShell (see PhotoGridPicker.tsx's doc for why). Reused as-is
+  //    for edit mode too — the same in-app gallery grid doubles as full
+  //    media management (add/remove/change cover) for an existing post. ──
 
   if (currentStep === 'photos') {
     return (
@@ -262,7 +330,7 @@ function CreateExperienceWizard() {
     );
   }
 
-  const copy = STEP_COPY[currentStep];
+  const copy = getStepCopy(currentStep, isEditMode);
 
   return (
     <WizardShell
@@ -277,12 +345,12 @@ function CreateExperienceWizard() {
       footer={
         isLastStep ? (
           <Button
-            label="Publish"
+            label={isEditMode ? 'Save Changes' : 'Publish'}
             variant="primary"
             fullWidth
             disabled={attempted && !canProceed}
             loading={isPublishing}
-            onPress={onPressPublish}
+            onPress={commitAndLeave}
           />
         ) : (
           <Button

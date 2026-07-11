@@ -102,6 +102,18 @@ export const queryKeys = {
       ] as const,
   },
 
+  // ── Experience Drafts (Sprint 3 Prompt 3) ───────────────────────────────────
+  // Wraps a local AsyncStorage read (experienceDraftService.ts) in TanStack
+  // Query purely for consistent loading-state/caching/invalidation ergonomics
+  // with everything else in this app — same rationale as `personalization`
+  // below, not because it's a network request. Powers the Profile screen's
+  // Drafts tile (existence + count) and the Drafts modal (the draft itself).
+  // One draft per user at a time (see experienceDraftService.ts's module
+  // doc), so `mine` resolves to `ExperienceDraft | null`, not a list.
+  drafts: {
+    mine: (userId: string) => ['drafts', 'mine', userId] as const,
+  },
+
   // ── Personalization (Sprint 2 Prompt 3) ─────────────────────────────────────
   // Not server data — wraps a local AsyncStorage read (lib/recentlyViewed.ts)
   // in TanStack Query purely for consistent loading-state/caching ergonomics

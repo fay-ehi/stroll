@@ -21,13 +21,23 @@
  *   - Place selection, Photo picking/upload/retry/reorder, Story +
  *     optional metadata editing
  *
- * Also exports `usePublishExperience` — a SEPARATE hook, not folded into
- * the above, because publishing is a server mutation (TanStack Query's
- * job — see this codebase's state rule: "TanStack Query manages all
- * server state. Zustand manages client/UI state only.") layered on top
- * of the same draft this hook manages, the same way useUpdateProfile is
- * its own hook alongside useProfile in useProfile.ts rather than a
- * method bolted onto one giant hook.
+ * Also exports `usePublishExperience` (extended for Edit) — a SEPARATE
+ * hook, not folded into the above, because publishing is a server
+ * mutation (TanStack Query's job — see this codebase's state rule:
+ * "TanStack Query manages all server state. Zustand manages client/UI
+ * state only.") layered on top of the same draft this hook manages, the
+ * same way useUpdateProfile is its own hook alongside useProfile in
+ * useProfile.ts rather than a method bolted onto one giant hook.
+ *
+ * ── Edit mode ──
+ * Pass an `experienceId` to seed the wizard from an already-published
+ * Experience instead of the local create-draft — see
+ * experienceCreationStore.ts's `CreationMode` doc for why this is a
+ * genuinely separate, in-memory-only session rather than a second kind of
+ * local draft. `usePublishExperience` below reads `mode` off the same
+ * store and calls `updateExperience` instead of `createExperience` when
+ * it's 'edit' — everything else (validation, upload-only-what's-new,
+ * duplicate-submission guard) is identical between the two.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -38,7 +48,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { useAuthState } from '@/hooks/useAuth';
 import { useDebounce } from '@/hooks';
-import { useExperienceCreationStore, type CreationStatus } from '@/stores/experienceCreationStore';
+import { useExperienceDetail } from '@/hooks/useExperienceDetail';
+import { useExperienceCreationStore, type CreationStatus, type CreationMode } from '@/stores/experienceCreationStore';
 import { showToast } from '@/stores/toastStore';
 import {
   validateDraftStep,
@@ -51,24 +62,86 @@ import {
   type PhotoUploadStatus,
 } from '@/types/experienceDraft';
 import { validateAvatarAsset } from '@/types/profile';
-import { CREATION_STEPS, creationStepIndex, isLastCreationStep, type CreationStep } from '@/constants/experienceCreation';
+import type { ExperienceDetailModel } from '@/types/experience';
+import { CREATION_STEPS, creationStepIndex, isLastCreationStep, FIRST_CREATION_STEP, type CreationStep } from '@/constants/experienceCreation';
 import { TIMEOUTS, EXPERIENCE_LIMITS, IMAGE_CONFIG } from '@/constants/app';
 import type { PlaceCategoryId } from '@/constants/places';
 import type { AmountSpent, VisitType, GoodForTag, VibeTag } from '@/constants/app';
 import type { StrollError } from '@/lib/errors';
-import { makeError, normalizeError } from '@/lib/errors';
+import { makeError, normalizeError, logError } from '@/lib/errors';
 import { queryKeys } from '@/lib/queryKeys';
 import { generateLocalId, chunk } from '@/utils';
 import {
   uploadExperiencePhoto,
   deleteExperiencePhoto,
   createExperience,
+  updateExperience,
 } from '@/services/experiencesService';
 import {
   trackExperienceDraftStepCompleted,
   trackExperienceDraftDiscarded,
   trackExperiencePublished,
+  trackExperienceEditStarted,
+  trackExperienceUpdated,
 } from '@/lib/analytics';
+
+// ─── Edit-mode seed mapper ────────────────────────────────────────────────────
+// Maps an already-published Experience into the exact shape the wizard
+// already knows how to render/edit — see experienceCreationStore.ts's
+// `initDraftForEdit` doc for why this is built here (a pure, local mapping
+// off data useExperienceDetail already fetched) rather than a network call
+// of its own. `title` has no published equivalent (see
+// types/experienceDraft.ts's module doc) — left blank, same as any other
+// optional field with nothing to prefill. Edit-loaded photos are seeded
+// directly as `status: 'uploaded'` with no `mediaLibraryAssetId` — they're
+// already-remote URLs, not device-gallery picks, so the ph:// resolution
+// step (resolveUploadUri below) never applies to them.
+
+function experienceToEditDraft(
+  experience: ExperienceDetailModel,
+): { draft: ExperienceDraft; originalPhotoUrls: string[] } {
+  const photos: ExperienceDraftPhoto[] = experience.photos.map((photo) => ({
+    id: generateLocalId('photo'),
+    localUri: photo.url,
+    remoteUrl: photo.url,
+    status: 'uploaded',
+  }));
+
+  const now = new Date().toISOString();
+
+  const draft: ExperienceDraft = {
+    id: generateLocalId('draft'),
+    userId: experience.creator.id,
+    title: '',
+    categoryId: experience.category?.id ?? null,
+    currentStep: FIRST_CREATION_STEP,
+    createdAt: now,
+    updatedAt: now,
+    place: {
+      id: experience.place.id,
+      name: experience.place.name,
+      slug: experience.place.slug,
+      city: experience.place.city,
+      address: experience.place.address,
+      latitude: experience.place.latitude,
+      longitude: experience.place.longitude,
+      category: experience.place.category?.id ?? null,
+      // Not part of PlaceSummary (types/experience.ts) — the collapsed
+      // Place row in ComposeStep falls back to PlaceImage's own
+      // no-image state, same as any place with no hero image.
+      heroImage: null,
+    },
+    photos,
+    story: experience.story,
+    amountSpent: experience.amountSpent,
+    visitType: experience.visitType,
+    wouldRecommend: experience.wouldRecommend,
+    goodForTags: experience.goodForTags,
+    vibeTags: experience.vibeTags,
+  };
+
+  return { draft, originalPhotoUrls: experience.photos.map((p) => p.url) };
+}
 
 // ─── Shared Photo Upload Helper ──────────────────────────────────────────────
 // Used by both the "add a photo" path below (upload-as-you-pick) and
@@ -148,6 +221,12 @@ async function uploadDraftPhotos(params: {
 export interface UseExperienceCreationResult {
   status: CreationStatus;
   draft: ExperienceDraft | null;
+  /** 'edit' when this hook was called with an `experienceId` — see the module doc above. */
+  mode: CreationMode;
+  /** The published Experience being edited — null in 'create' mode. */
+  sourceExperienceId: string | null;
+  /** Set only in edit mode, only if fetching the source Experience itself failed (as opposed to a normal creation-store error) — see the screen's own error-state branch. */
+  sourceError: StrollError | null;
 
   currentStep: CreationStep;
   stepIndex: number;
@@ -200,17 +279,23 @@ export interface UseExperienceCreationResult {
   error: StrollError | null;
 }
 
-export function useExperienceCreation(): UseExperienceCreationResult {
+export function useExperienceCreation(experienceId?: string): UseExperienceCreationResult {
   const { user } = useAuthState();
   const userId = user?.id;
+  const isEditMode = !!experienceId;
+  const queryClient = useQueryClient();
 
   const status  = useExperienceCreationStore((s) => s.status);
   const draft   = useExperienceCreationStore((s) => s.draft);
+  const mode    = useExperienceCreationStore((s) => s.mode);
+  const sourceExperienceId = useExperienceCreationStore((s) => s.sourceExperienceId);
+  const originalPhotoUrls  = useExperienceCreationStore((s) => s.originalPhotoUrls);
   const dirty   = useExperienceCreationStore((s) => s.dirty);
   const saving  = useExperienceCreationStore((s) => s.saving);
   const error   = useExperienceCreationStore((s) => s.error);
 
   const initDraft         = useExperienceCreationStore((s) => s.initDraft);
+  const initDraftForEdit  = useExperienceCreationStore((s) => s.initDraftForEdit);
   const storeSetTitle     = useExperienceCreationStore((s) => s.setTitle);
   const storeSetCategory  = useExperienceCreationStore((s) => s.setCategory);
   const storeSetPlace     = useExperienceCreationStore((s) => s.setPlace);
@@ -230,27 +315,61 @@ export function useExperienceCreation(): UseExperienceCreationResult {
   const discardDraft   = useExperienceCreationStore((s) => s.discardDraft);
   const clearError     = useExperienceCreationStore((s) => s.clearError);
 
-  // ── Initial load / resume ─────────────────────────────────────────────────
+  // ── Initial load / resume (create mode) ───────────────────────────────────
+  // Invalidates the Drafts tile's query (useExperienceDrafts.ts) once
+  // this resolves — covers the "no draft existed, initDraft just created
+  // one" case, so a creator who taps Create for the first time sees the
+  // Profile's Drafts tile update the moment they back out, not only after
+  // the debounced auto-save's first write. A harmless extra refresh in
+  // the far more common "resumed an existing draft" case.
 
   useEffect(() => {
-    if (!userId) return;
-    initDraft(userId);
-  }, [userId, initDraft]);
+    if (!userId || isEditMode) return;
+    void initDraft(userId).then(() => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.mine(userId) });
+    });
+  }, [userId, isEditMode, initDraft, queryClient]);
 
-  // ── Auto-save (debounced) ─────────────────────────────────────────────────
+  // ── Edit-session seed ──────────────────────────────────────────────────────
+  // Reuses useExperienceDetail — the same fetch/cache Experience Details
+  // itself uses, so opening Edit is "free" if the creator just came from
+  // viewing their own experience, and this seed also warms the query cache
+  // that screen reads from. Guarded on the store's own mode/sourceExperienceId
+  // (not a ref) so it naturally stays a no-op once seeded, even across the
+  // background refetches useExperienceDetail may perform while this screen
+  // stays mounted.
+
+  const sourceExperienceQuery = useExperienceDetail(experienceId ?? '');
+
+  useEffect(() => {
+    if (!isEditMode || !experienceId) return;
+    if (mode === 'edit' && sourceExperienceId === experienceId) return; // already seeded
+    if (!sourceExperienceQuery.experience) return;
+
+    const { draft: editDraft, originalPhotoUrls: seedPhotoUrls } = experienceToEditDraft(
+      sourceExperienceQuery.experience,
+    );
+    initDraftForEdit({ experienceId, draft: editDraft, originalPhotoUrls: seedPhotoUrls });
+    trackExperienceEditStarted({ experienceId });
+  }, [isEditMode, experienceId, sourceExperienceQuery.experience, mode, sourceExperienceId, initDraftForEdit]);
+
+  // ── Auto-save (debounced, create mode only) ───────────────────────────────
   // Debounce the draft's content, not a timer directly — this is exactly
   // the pattern useUsernameCheck (useOnboarding.ts) already uses to avoid
-  // firing a request on every keystroke.
+  // firing a request on every keystroke. Skipped entirely in edit mode —
+  // there's nothing to persist locally (see CreationMode's doc in
+  // experienceCreationStore.ts); saveDraft() already no-ops for 'edit', but
+  // there's no reason to even schedule the call.
 
   const debouncedDraft = useDebounce(draft, TIMEOUTS.AUTOSAVE_DEBOUNCE_MS);
 
   useEffect(() => {
-    if (!userId || !dirty || !debouncedDraft) return;
+    if (!userId || !dirty || !debouncedDraft || mode !== 'create') return;
     saveDraft(userId);
     // Only the settled (debounced) value should trigger a save — `dirty`
     // and `saveDraft` are read fresh from the store when this does fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedDraft, userId]);
+  }, [debouncedDraft, userId, mode]);
 
   // ── Derived: step + validation ────────────────────────────────────────────
 
@@ -364,11 +483,20 @@ export function useExperienceCreation(): UseExperienceCreationResult {
       // Best-effort — see deleteExperiencePhoto's doc. Fires after the
       // optimistic local removal so the UI never waits on a network
       // round trip just to remove a thumbnail.
-      if (photo?.status === 'uploaded' && photo.remoteUrl) {
+      //
+      // Skipped for a photo that was already live on the published
+      // experience being edited (`originalPhotoUrls` — see
+      // experienceCreationStore.ts's `CreationMode` doc): deleting its
+      // Storage object right now, before the edit is even saved, would
+      // break the still-live published experience the instant "remove"
+      // is tapped — even if the user goes on to discard this edit
+      // entirely. Those get cleaned up later instead, only once the
+      // update actually succeeds — see usePublishExperience's doc.
+      if (photo?.status === 'uploaded' && photo.remoteUrl && !originalPhotoUrls.includes(photo.remoteUrl)) {
         void deleteExperiencePhoto(photo.remoteUrl);
       }
     },
-    [draft, storeRemovePhoto]
+    [draft, storeRemovePhoto, originalPhotoUrls]
   );
 
   const retryPhotoUpload = useCallback(
@@ -495,6 +623,9 @@ export function useExperienceCreation(): UseExperienceCreationResult {
   // ── Exit ─────────────────────────────────────────────────────────────────
 
   const handleSaveAndExit = useCallback(async () => {
+    // Create-mode only — an edit session has nothing local to save (see
+    // CreationMode's doc); the screen uses usePublishExperience directly
+    // for its edit-mode "Save Changes" instead of this.
     if (userId) {
       const success = await saveDraft(userId);
       if (!success) {
@@ -517,8 +648,15 @@ export function useExperienceCreation(): UseExperienceCreationResult {
     // itself is deleted, but not awaited-per-photo in a way that blocks
     // the discard — a slow/failed cleanup call shouldn't stop the user
     // from leaving.
+    //
+    // In edit mode, `originalPhotoUrls` are photos that were already live
+    // on the published experience before this session started — those are
+    // deliberately skipped here even if the user tapped "remove" on one:
+    // discarding an edit must never delete something still visible on the
+    // published experience. Only photos uploaded fresh during *this*
+    // session get cleaned up on discard.
     for (const photo of draft.photos) {
-      if (photo.status === 'uploaded' && photo.remoteUrl) {
+      if (photo.status === 'uploaded' && photo.remoteUrl && !originalPhotoUrls.includes(photo.remoteUrl)) {
         void deleteExperiencePhoto(photo.remoteUrl);
       }
     }
@@ -529,12 +667,16 @@ export function useExperienceCreation(): UseExperienceCreationResult {
       return;
     }
     trackExperienceDraftDiscarded({ draftId: draft.id, step: currentStep });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.mine(userId) });
     router.back();
-  }, [userId, draft, currentStep, discardDraft]);
+  }, [userId, draft, currentStep, discardDraft, originalPhotoUrls, queryClient]);
 
   return {
     status,
     draft,
+    mode,
+    sourceExperienceId,
+    sourceError: isEditMode ? (sourceExperienceQuery.error ?? null) : null,
     currentStep,
     stepIndex,
     stepCount: CREATION_STEPS.length,
@@ -616,12 +758,33 @@ export interface UsePublishExperienceResult {
  * On success: invalidates every `experiences.*` query (Discover feed,
  * featured carousel, this user's own gallery — see queryKeys.ts's own
  * doc: invalidating the `['experiences']` prefix covers all of them) so
- * Discover picks up the new post on its own, and clears the local draft.
- * On failure: the draft is left exactly as it was (createExperience's
- * compensating-rollback means nothing was left half-written server-side
- * either — see that function's doc in experiencesService.ts) — reopening
- * Create resumes it automatically (requirement #3's Resume), so "try
- * again" is just tapping Create.
+ * Discover and the creator Profile grid both pick up the change on their
+ * own, and clears the session (local draft in 'create' mode; just the
+ * in-memory edit session in 'edit' mode — `discardDraft` already branches
+ * on this, see experienceCreationStore.ts).
+ * On failure: the draft is left exactly as it was — in 'create' mode,
+ * nothing was left half-written server-side either (createExperience's
+ * compensating rollback — see that function's doc); in 'edit' mode,
+ * updateExperience only ever touches an experience that was already a
+ * fully valid published row, so a failure leaves the live experience
+ * exactly as it was before Save was pressed. Either way, "try again" is
+ * just pressing Publish/Save again.
+ *
+ * ── Edit mode ──
+ * Reads `mode`/`sourceExperienceId`/`originalPhotoUrls` off the same
+ * store `useExperienceCreation` seeds via `initDraftForEdit`, and calls
+ * `updateExperience` instead of `createExperience` when `mode === 'edit'`.
+ * "Upload only newly added media, preserve unchanged media" falls out of
+ * the exact same `status !== 'uploaded'` upload-skip logic Create already
+ * used — an edit-loaded photo starts out `status: 'uploaded'` (see
+ * experienceToEditDraft above), so it's already skipped. What IS new for
+ * edit: photos the creator removed that were part of the original
+ * published experience need their storage objects cleaned up too, but
+ * only once the update actually succeeds — never on mere
+ * removal-from-the-list (that already happens, deferred, in
+ * handleDiscard above) and never if the edit is discarded instead of
+ * saved. Computed as `originalPhotoUrls` minus the final photo URL list,
+ * right after a successful update.
  */
 export function usePublishExperience(): UsePublishExperienceResult {
   const { user } = useAuthState();
@@ -629,6 +792,9 @@ export function usePublishExperience(): UsePublishExperienceResult {
   const queryClient = useQueryClient();
 
   const draft = useExperienceCreationStore((s) => s.draft);
+  const mode = useExperienceCreationStore((s) => s.mode);
+  const sourceExperienceId = useExperienceCreationStore((s) => s.sourceExperienceId);
+  const originalPhotoUrls = useExperienceCreationStore((s) => s.originalPhotoUrls);
   const updatePhotoStatus = useExperienceCreationStore((s) => s.updatePhotoStatus);
   const discardDraft = useExperienceCreationStore((s) => s.discardDraft);
 
@@ -648,12 +814,14 @@ export function usePublishExperience(): UsePublishExperienceResult {
       }
 
       // Upload anything not already uploaded — covers a photo still
-      // 'pending'/'uploading' when Publish was pressed, and covers a
-      // clean retry of anything that previously ended 'failed'. If this
-      // keeps failing, it's almost always a Supabase Storage/RLS setup
-      // issue (missing `experience-photos` bucket or insert policy),
-      // not an app bug — see uploadExperiencePhoto's doc in
-      // experiencesService.ts.
+      // 'pending'/'uploading' when Publish was pressed, covers a clean
+      // retry of anything that previously ended 'failed', and (edit mode)
+      // covers exactly the newly-added photos, since every edit-loaded
+      // photo already starts out 'uploaded' — see this function's own doc
+      // above. If this keeps failing, it's almost always a Supabase
+      // Storage/RLS setup issue (missing `experience-photos` bucket or
+      // insert policy), not an app bug — see uploadExperiencePhoto's doc
+      // in experiencesService.ts.
       const notYetUploaded = draft.photos.filter((p) => p.status !== 'uploaded');
       if (notYetUploaded.length > 0) {
         await uploadDraftPhotos({
@@ -684,6 +852,34 @@ export function usePublishExperience(): UsePublishExperienceResult {
       const place = draft.place;
       if (!place) throw makeError('VALIDATION_ERROR', 'Choose a place before publishing.');
 
+      if (mode === 'edit') {
+        if (!sourceExperienceId) throw makeError('UNKNOWN', 'No experience to update.');
+
+        const result = await updateExperience({
+          experienceId: sourceExperienceId,
+          userId,
+          placeId: place.id,
+          city: place.city,
+          story: draft.story.trim(),
+          amountSpent: draft.amountSpent,
+          visitType: draft.visitType,
+          wouldRecommend: draft.wouldRecommend,
+          goodForTags: draft.goodForTags,
+          vibeTags: draft.vibeTags,
+          photoUrls,
+        });
+
+        if (!result.ok) throw result.error;
+
+        // Best-effort cleanup of photos removed during this edit — see
+        // this function's module doc above for why this only happens
+        // here, after a successful save, and not at removal time.
+        const removedUrls = originalPhotoUrls.filter((url) => !photoUrls.includes(url));
+        for (const url of removedUrls) void deleteExperiencePhoto(url);
+
+        return result.data;
+      }
+
       const result = await createExperience({
         userId,
         placeId: place.id,
@@ -704,33 +900,50 @@ export function usePublishExperience(): UsePublishExperienceResult {
     onSuccess: async (experienceId) => {
       const publishedDraft = draft;
       if (publishedDraft) {
-        trackExperiencePublished({
-          draftId: publishedDraft.id,
-          experienceId,
-          placeId: publishedDraft.place?.id ?? '',
-          photoCount: publishedDraft.photos.length,
-        });
+        if (mode === 'edit') {
+          trackExperienceUpdated({ experienceId, photoCount: publishedDraft.photos.length });
+        } else {
+          trackExperiencePublished({
+            draftId: publishedDraft.id,
+            experienceId,
+            placeId: publishedDraft.place?.id ?? '',
+            photoCount: publishedDraft.photos.length,
+          });
+        }
       }
 
       await queryClient.invalidateQueries({ queryKey: queryKeys.experiences.all() });
 
-      if (userId) await discardDraft(userId);
+      if (userId) {
+        await discardDraft(userId);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.mine(userId) });
+      }
 
       // Longer than the 3s default — this is the ONLY confirmation the
       // user gets that a several-second background operation actually
       // finished, since (unlike the old flow) they're no longer looking
       // at a screen that visibly changes state on its own.
-      showToast({ type: 'success', message: 'Your experience is live! 🎉', duration: 4500 });
+      showToast({
+        type: 'success',
+        message: mode === 'edit' ? 'Your changes are saved.' : 'Your experience is live! 🎉',
+        duration: 4500,
+      });
     },
 
     onError: (error) => {
+      logError('usePublishExperience', error);
+
       // Longer than the 3s default, and phrased around the one thing the
-      // user can actually do about it (reopen Create — their draft is
-      // untouched) rather than just a raw error message, since there's
-      // no screen left showing a retry button by the time this fires.
+      // user can actually do about it (reopen Create/Edit — their changes
+      // are untouched) rather than just a raw error message, since
+      // there's no screen left showing a retry button by the time this
+      // fires.
       showToast({
         type: 'error',
-        message: `We couldn't publish: ${normalizeError(error).userMessage} Your draft is saved — reopen Create to try again.`,
+        message:
+          mode === 'edit'
+            ? `We couldn't save your changes: ${normalizeError(error).userMessage} Reopen Edit to try again.`
+            : `We couldn't publish: ${normalizeError(error).userMessage} Your draft is saved — reopen Create to try again.`,
         duration: 6000,
       });
     },

@@ -71,10 +71,37 @@ import type { AmountSpent, VisitType, GoodForTag, VibeTag } from '@/constants/ap
 
 export type CreationStatus = 'idle' | 'loading' | 'ready' | 'error';
 
+/**
+ * Sprint 3 Prompt 3 — 'create' is everything this store already did
+ * (a local AsyncStorage-backed draft, one per user — see
+ * experienceDraftService.ts). 'edit' is new: the wizard is reused
+ * unmodified (requirement #3: "Do not build a separate editing UI"), but
+ * the in-memory `draft` it operates on is seeded from an already-published
+ * Experience instead of loaded from/persisted to the local draft slot —
+ * editing a published post has nothing to do with the separate
+ * "in-progress, unpublished draft" concept the rest of this store models,
+ * and must never overwrite or delete that user's real draft-in-progress.
+ * See `initDraftForEdit` and the mode-aware branches in `saveDraft` /
+ * `discardDraft` below for what that means in practice.
+ */
+export type CreationMode = 'create' | 'edit';
+
 export interface ExperienceCreationState {
   // ── Loaded draft + wizard progress ──────────────────────────────────────────
   status: CreationStatus;
   draft:  ExperienceDraft | null;
+  mode:   CreationMode;
+  /** The published Experience being edited — null in 'create' mode. */
+  sourceExperienceId: string | null;
+  /**
+   * Snapshot of the published Experience's photo URLs at the moment
+   * editing started — diffed against `draft.photos` at save time so only
+   * genuinely-removed photos get cleaned up from Storage, and so a
+   * discarded edit never deletes anything still live (see
+   * useExperienceCreation.ts's `handleDiscard` / `usePublishExperience`).
+   * Always empty in 'create' mode.
+   */
+  originalPhotoUrls: string[];
 
   // ── Save lifecycle ──────────────────────────────────────────────────────────
   /** True when in-memory `draft` has changes not yet written to storage. */
@@ -84,8 +111,19 @@ export interface ExperienceCreationState {
   error:  StrollError | null;
 
   // ── Actions ──────────────────────────────────────────────────────────────────
-  /** Loads the user's in-progress draft, or creates one if none exists (Resume / Automatic draft creation). */
+  /** Loads the user's in-progress draft, or creates one if none exists (Resume / Automatic draft creation). Sets mode: 'create'. */
   initDraft: (userId: string) => Promise<void>;
+  /**
+   * Seeds an in-memory-only 'edit' session from an already-published
+   * Experience — no AsyncStorage read/write, unlike `initDraft` above (see
+   * `CreationMode`'s doc). Synchronous: there's no local storage round
+   * trip, just a pure mapping from the already-fetched Experience the
+   * caller passes in (see useExperienceCreation.ts, which fetches it via
+   * useExperienceDetail). Safe to call more than once with the same
+   * experience id — re-entering an edit session that's already loaded
+   * this tick is a no-op, mirroring `initDraft`'s own re-entry guard.
+   */
+  initDraftForEdit: (params: { experienceId: string; draft: ExperienceDraft; originalPhotoUrls: string[] }) => void;
 
   /** Optional local working label — see types/experienceDraft.ts's module doc. */
   setTitle:    (title: string) => void;
@@ -126,9 +164,15 @@ export interface ExperienceCreationState {
 
 // ─── Initial State ─────────────────────────────────────────────────────────────
 
-const INITIAL_STATE: Pick<ExperienceCreationState, 'status' | 'draft' | 'dirty' | 'saving' | 'error'> = {
+const INITIAL_STATE: Pick<
+  ExperienceCreationState,
+  'status' | 'draft' | 'mode' | 'sourceExperienceId' | 'originalPhotoUrls' | 'dirty' | 'saving' | 'error'
+> = {
   status: 'idle',
   draft:  null,
+  mode:   'create',
+  sourceExperienceId: null,
+  originalPhotoUrls:  [],
   dirty:  false,
   saving: false,
   error:  null,
@@ -144,9 +188,9 @@ export const useExperienceCreationStore = create<ExperienceCreationState>((set, 
     // shouldn't refetch/flash a loading state over an in-memory draft
     // that's already current.
     const current = get();
-    if (current.status === 'ready' && current.draft?.userId === userId) return;
+    if (current.status === 'ready' && current.mode === 'create' && current.draft?.userId === userId) return;
 
-    set({ status: 'loading', error: null });
+    set({ status: 'loading', error: null, mode: 'create', sourceExperienceId: null, originalPhotoUrls: [] });
 
     const existingResult = await loadDraft(userId);
     if (!existingResult.ok) {
@@ -168,6 +212,26 @@ export const useExperienceCreationStore = create<ExperienceCreationState>((set, 
 
     trackExperienceCreationStarted({ draftId: createdResult.data.id });
     set({ status: 'ready', draft: createdResult.data, dirty: false });
+  },
+
+  initDraftForEdit: ({ experienceId, draft, originalPhotoUrls }) => {
+    // Already loaded this exact edit session this tick — see initDraft's
+    // identical re-entry guard above.
+    const current = get();
+    if (current.status === 'ready' && current.mode === 'edit' && current.sourceExperienceId === experienceId) {
+      return;
+    }
+
+    set({
+      status: 'ready',
+      draft,
+      mode: 'edit',
+      sourceExperienceId: experienceId,
+      originalPhotoUrls,
+      dirty: false,
+      saving: false,
+      error: null,
+    });
   },
 
   setTitle: (title) => {
@@ -309,8 +373,17 @@ export const useExperienceCreationStore = create<ExperienceCreationState>((set, 
   },
 
   saveDraft: async (userId) => {
-    const { draft, dirty } = get();
+    const { draft, dirty, mode } = get();
     if (!draft || !dirty) return true;
+
+    // Edit sessions are in-memory only — there is nothing on local
+    // storage to write to (see CreationMode's doc above). "Saving" an
+    // edit means publishing the update to Supabase, which is
+    // usePublishExperience's job (useExperienceCreation.ts), not this
+    // store's. `dirty` deliberately stays true here — it's still exactly
+    // correct as "there are unsaved changes" for the exit-confirmation
+    // flow, which is the only other thing that reads it.
+    if (mode === 'edit') return true;
 
     set({ saving: true, error: null });
     try {
@@ -341,6 +414,17 @@ export const useExperienceCreationStore = create<ExperienceCreationState>((set, 
   },
 
   discardDraft: async (userId) => {
+    // Edit sessions never wrote to the local draft slot in the first
+    // place (see CreationMode's doc) — "discard" just means dropping the
+    // in-memory changes, never a call to deleteDraft(), which would wipe
+    // this user's actual in-progress Create draft if one happens to
+    // exist. That resetting to INITIAL_STATE below already accomplishes,
+    // for both modes — same reason `reset()` exists at all.
+    if (get().mode === 'edit') {
+      set({ ...INITIAL_STATE });
+      return true;
+    }
+
     set({ saving: true, error: null });
     try {
       const result = await deleteDraft(userId);
