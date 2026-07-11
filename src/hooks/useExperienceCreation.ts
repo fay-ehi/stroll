@@ -11,28 +11,29 @@
  *
  * Owns:
  *   - Kicking off initDraft() on mount (Resume / Automatic draft creation)
- *   - Debounced auto-save (requirement #10) — reuses the shared
- *     useDebounce hook (src/hooks/index.ts) rather than a bespoke timer
+ *   - Debounced auto-save — reuses the shared useDebounce hook
+ *     (src/hooks/index.ts) rather than a bespoke timer
  *   - Deriving per-step validation from the pure validateDraftStep()
  *     function (types/experienceDraft.ts) so the store never has to keep
  *     a separate "errors" field in sync by hand
  *   - Step navigation guarded by that validation
  *   - Discard / Save-and-exit, both of which navigate back via expo-router
- *   - Sprint 3 Prompt 2: Place selection, Photo picking/upload/retry/
- *     reorder, Story + optional metadata editing
+ *   - Place selection, Photo picking/upload/retry/reorder, Story +
+ *     optional metadata editing
  *
- * Also exports `usePublishExperience` (Sprint 3 Prompt 2) — a SEPARATE
- * hook, not folded into the above, because publishing is a server
- * mutation (TanStack Query's job — see this codebase's state rule:
- * "TanStack Query manages all server state. Zustand manages client/UI
- * state only.") layered on top of the same draft this hook manages, the
- * same way useUpdateProfile is its own hook alongside useProfile in
- * useProfile.ts rather than a method bolted onto one giant hook.
+ * Also exports `usePublishExperience` — a SEPARATE hook, not folded into
+ * the above, because publishing is a server mutation (TanStack Query's
+ * job — see this codebase's state rule: "TanStack Query manages all
+ * server state. Zustand manages client/UI state only.") layered on top
+ * of the same draft this hook manages, the same way useUpdateProfile is
+ * its own hook alongside useProfile in useProfile.ts rather than a
+ * method bolted onto one giant hook.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { useAuthState } from '@/hooks/useAuth';
@@ -55,7 +56,7 @@ import { TIMEOUTS, EXPERIENCE_LIMITS, IMAGE_CONFIG } from '@/constants/app';
 import type { PlaceCategoryId } from '@/constants/places';
 import type { AmountSpent, VisitType, GoodForTag, VibeTag } from '@/constants/app';
 import type { StrollError } from '@/lib/errors';
-import { makeError, normalizeError, logError } from '@/lib/errors';
+import { makeError, normalizeError } from '@/lib/errors';
 import { queryKeys } from '@/lib/queryKeys';
 import { generateLocalId, chunk } from '@/utils';
 import {
@@ -70,19 +71,42 @@ import {
 } from '@/lib/analytics';
 
 // ─── Shared Photo Upload Helper ──────────────────────────────────────────────
-// Used by both `pickPhotos` (upload-as-you-pick, in this hook) and
+// Used by both the "add a photo" path below (upload-as-you-pick) and
 // `usePublishExperience` (upload-any-still-pending-photo at Publish time,
 // covering a retry after a previous failed attempt) — kept as one
 // function so the batching/status-update logic isn't duplicated between
 // the two call sites (architecture rule: never duplicate logic).
 //
-// Batched 3-at-a-time via the existing `chunk()` utility (requirement
-// #11 "Upload batching") rather than one `Promise.all` over every photo
-// at once — a full-size, uncompressed device photo is a few MB; firing
-// up to MAX_PHOTOS (10) uploads simultaneously on a mobile connection is
-// exactly the kind of burst this requirement is about avoiding.
+// Batched 3-at-a-time via the existing `chunk()` utility rather than one
+// `Promise.all` over every photo at once — a full-size, uncompressed
+// device photo is a few MB; firing up to MAX_PHOTOS (10) uploads
+// simultaneously on a mobile connection is exactly the kind of burst
+// that batching avoids.
 
 const PHOTO_UPLOAD_CONCURRENCY = 3;
+
+// A gallery pick's `localUri` is a `ph://` asset-library reference (see
+// ExperienceDraftPhoto.mediaLibraryAssetId's doc) — expo-image can render
+// that directly, but expo-file-system's `File` (used by
+// uploadExperiencePhoto to read the bytes) can't read it. MediaLibrary's
+// own `getAssetInfoAsync` is what resolves a `ph://` id to a real,
+// readable `file://` path (downloading from iCloud first if needed) —
+// the same resolution step Expo apps have always needed before handing a
+// gallery pick to a bytes-based upload. Camera captures never set
+// `mediaLibraryAssetId`, so this is a no-op for them — `localUri` is
+// already a `file://` path there.
+async function resolveUploadUri(photo: ExperienceDraftPhoto): Promise<string> {
+  if (!photo.mediaLibraryAssetId) return photo.localUri;
+  try {
+    const info = await MediaLibrary.getAssetInfoAsync(photo.mediaLibraryAssetId);
+    return info.localUri ?? photo.localUri;
+  } catch {
+    // Falls back to the ph:// uri — the upload below will fail the same
+    // way it would have without this resolution step, rather than
+    // throwing somewhere this function's caller isn't expecting.
+    return photo.localUri;
+  }
+}
 
 async function uploadDraftPhotos(params: {
   userId: string;
@@ -98,24 +122,18 @@ async function uploadDraftPhotos(params: {
       batch.map(async (photo) => {
         params.onStatusChange(photo.id, 'uploading');
 
+        const uploadUri = await resolveUploadUri(photo);
         const result = await uploadExperiencePhoto({
           userId:   params.userId,
           draftId:  params.draftId,
           photoId:  photo.id,
-          uri:      photo.localUri,
+          uri:      uploadUri,
         });
 
         if (result.ok) {
           params.onStatusChange(photo.id, 'uploaded', result.data);
         } else {
           allSucceeded = false;
-          // The toast the caller shows is deliberately generic (Design
-          // System §35 — no raw backend errors in user-facing copy), so
-          // this is the ONLY place the real cause (e.g. "Bucket not
-          // found", an RLS policy violation, a network failure) is
-          // visible at all. Check the Metro/console output for this
-          // `[Error: uploadExperiencePhoto]` line when a photo fails.
-          logError('uploadExperiencePhoto', result.error);
           params.onStatusChange(photo.id, 'failed');
         }
       })
@@ -150,8 +168,12 @@ export interface UseExperienceCreationResult {
   selectPlace: (place: DraftPlaceSummary) => void;
 
   // ── Photos ───────────────────────────────────────────────────────────────────
-  isPickingPhotos: boolean;
-  pickPhotos: () => Promise<void>;
+  /** True while a camera capture or a single tapped-in-grid photo is being validated/added — used to disable a tile mid-tap, not a full-screen loading state. */
+  isAddingPhoto: boolean;
+  /** Tap on a device-library thumbnail in the in-app grid — adds it if not yet selected, removes it if it is. */
+  toggleLibraryAsset: (asset: { id?: string; uri: string; width: number; height: number }) => void;
+  /** The grid's camera tile — opens the OS camera, then adds the capture the same way a tapped library thumbnail would. */
+  captureFromCamera: () => Promise<void>;
   retryPhotoUpload: (photoId: string) => Promise<void>;
   removePhoto: (photoId: string) => Promise<void>;
   /** Moves a photo to the front of the list — position 0 is always the cover (see ExperienceDraftPhoto's doc). */
@@ -208,8 +230,6 @@ export function useExperienceCreation(): UseExperienceCreationResult {
   const discardDraft   = useExperienceCreationStore((s) => s.discardDraft);
   const clearError     = useExperienceCreationStore((s) => s.clearError);
 
-  const [isPickingPhotos, setIsPickingPhotos] = useState(false);
-
   // ── Initial load / resume ─────────────────────────────────────────────────
 
   useEffect(() => {
@@ -265,34 +285,36 @@ export function useExperienceCreation(): UseExperienceCreationResult {
 
   // ── Photos ───────────────────────────────────────────────────────────────────
 
-  const pickPhotos = useCallback(async () => {
-    if (!draft || !userId) return;
+  const [isAddingPhoto, setIsAddingPhoto] = useState(false);
 
-    const remainingSlots = EXPERIENCE_LIMITS.MAX_PHOTOS - draft.photos.length;
-    if (remainingSlots <= 0) {
-      showToast({ type: 'info', message: `You can add up to ${EXPERIENCE_LIMITS.MAX_PHOTOS} photos.` });
-      return;
-    }
+  // The reusable core of "add photo(s) to the draft": caps at
+  // MAX_PHOTOS, validates each asset (reusing validateAvatarAsset — same
+  // size/type rules a photo needs regardless of whether it's an avatar
+  // or an experience photo), adds the valid ones to the store, and kicks
+  // off their upload in the background. Shared by `toggleLibraryAsset`
+  // (tapping an in-grid thumbnail) and `captureFromCamera` (the grid's
+  // camera tile) — previously this was all inline in a single
+  // `pickPhotos` that also opened expo-image-picker's native multi-select
+  // sheet; that sheet is gone (replaced by the in-app grid — see
+  // PhotoGridPicker.tsx) but the validate/add/upload logic underneath it
+  // is exactly what both new entry points still need.
+  const addAssets = useCallback(
+    async (pickedAssets: { id?: string; uri: string; width: number; height: number; mimeType?: string; fileSize?: number }[]) => {
+      if (!draft || !userId || pickedAssets.length === 0) return;
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      showToast({ type: 'info', message: 'Photo access is needed to add pictures to your experience.' });
-      return;
-    }
+      const remainingSlots = EXPERIENCE_LIMITS.MAX_PHOTOS - draft.photos.length;
+      if (remainingSlots <= 0) {
+        showToast({ type: 'info', message: `You can add up to ${EXPERIENCE_LIMITS.MAX_PHOTOS} photos.` });
+        return;
+      }
 
-    setIsPickingPhotos(true);
-    try {
-      const picked = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: true,
-        selectionLimit: remainingSlots,
-        quality: IMAGE_CONFIG.COMPRESSION_QUALITY,
-      });
+      const capped = pickedAssets.slice(0, remainingSlots);
+      if (capped.length < pickedAssets.length) {
+        showToast({ type: 'info', message: `You can add up to ${EXPERIENCE_LIMITS.MAX_PHOTOS} photos.` });
+      }
 
-      if (picked.canceled || picked.assets.length === 0) return;
-
-      const validAssets: typeof picked.assets = [];
-      for (const asset of picked.assets) {
+      const validAssets: typeof capped = [];
+      for (const asset of capped) {
         const validation = validateAvatarAsset({
           uri: asset.uri,
           mimeType: asset.mimeType,
@@ -309,6 +331,7 @@ export function useExperienceCreation(): UseExperienceCreationResult {
       const newPhotos: ExperienceDraftPhoto[] = validAssets.map((asset) => ({
         id: generateLocalId('photo'),
         localUri: asset.uri,
+        mediaLibraryAssetId: asset.id,
         remoteUrl: null,
         status: 'pending',
         width: asset.width,
@@ -329,10 +352,24 @@ export function useExperienceCreation(): UseExperienceCreationResult {
           showToast({ type: 'error', message: 'Some photos failed to upload. Tap a photo to retry.' });
         }
       });
-    } finally {
-      setIsPickingPhotos(false);
-    }
-  }, [draft, userId, storeAddPhotos, updatePhotoStatus]);
+    },
+    [draft, userId, storeAddPhotos, updatePhotoStatus]
+  );
+
+  const removePhoto = useCallback(
+    async (photoId: string) => {
+      if (!draft) return;
+      const photo = draft.photos.find((p) => p.id === photoId);
+      storeRemovePhoto(photoId);
+      // Best-effort — see deleteExperiencePhoto's doc. Fires after the
+      // optimistic local removal so the UI never waits on a network
+      // round trip just to remove a thumbnail.
+      if (photo?.status === 'uploaded' && photo.remoteUrl) {
+        void deleteExperiencePhoto(photo.remoteUrl);
+      }
+    },
+    [draft, storeRemovePhoto]
+  );
 
   const retryPhotoUpload = useCallback(
     async (photoId: string) => {
@@ -350,20 +387,46 @@ export function useExperienceCreation(): UseExperienceCreationResult {
     [draft, userId, updatePhotoStatus]
   );
 
-  const removePhoto = useCallback(
-    async (photoId: string) => {
+  // Tapping a grid thumbnail toggles it — matches how the asset already
+  // reads visually in PhotoGridPicker (dimmed + numbered badge when
+  // selected). Matched by `localUri`, since that's exactly the
+  // `asset.uri` expo-media-library returned when it was added — there's
+  // no separate "library asset id" stored on ExperienceDraftPhoto to
+  // look up instead (see that type's doc).
+  const toggleLibraryAsset = useCallback(
+    (asset: { id?: string; uri: string; width: number; height: number }) => {
       if (!draft) return;
-      const photo = draft.photos.find((p) => p.id === photoId);
-      storeRemovePhoto(photoId);
-      // Best-effort — see deleteExperiencePhoto's doc. Fires after the
-      // optimistic local removal so the UI never waits on a network
-      // round trip just to remove a thumbnail.
-      if (photo?.status === 'uploaded' && photo.remoteUrl) {
-        void deleteExperiencePhoto(photo.remoteUrl);
+      const existing = draft.photos.find((p) => p.localUri === asset.uri);
+      if (existing) {
+        void removePhoto(existing.id);
+      } else {
+        setIsAddingPhoto(true);
+        void addAssets([asset]).finally(() => setIsAddingPhoto(false));
       }
     },
-    [draft, storeRemovePhoto]
+    [draft, removePhoto, addAssets]
   );
+
+  const captureFromCamera = useCallback(async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      showToast({ type: 'info', message: 'Camera access is needed to take a photo.' });
+      return;
+    }
+
+    setIsAddingPhoto(true);
+    try {
+      const result = await ImagePicker.launchCameraAsync({ quality: IMAGE_CONFIG.COMPRESSION_QUALITY });
+      if (result.canceled || result.assets.length === 0) return;
+
+      const asset = result.assets[0]!;
+      await addAssets([
+        { uri: asset.uri, width: asset.width, height: asset.height, mimeType: asset.mimeType, fileSize: asset.fileSize },
+      ]);
+    } finally {
+      setIsAddingPhoto(false);
+    }
+  }, [addAssets]);
 
   const makeCoverPhoto = useCallback(
     (photoId: string) => storeMovePhoto(photoId, 0),
@@ -484,8 +547,9 @@ export function useExperienceCreation(): UseExperienceCreationResult {
     updateTitle,
     setCategory,
     selectPlace,
-    isPickingPhotos,
-    pickPhotos,
+    isAddingPhoto,
+    toggleLibraryAsset,
+    captureFromCamera,
     retryPhotoUpload,
     removePhoto,
     makeCoverPhoto,
@@ -660,8 +724,6 @@ export function usePublishExperience(): UsePublishExperienceResult {
     },
 
     onError: (error) => {
-      logError('usePublishExperience', error);
-
       // Longer than the 3s default, and phrased around the one thing the
       // user can actually do about it (reopen Create — their draft is
       // untouched) rather than just a raw error message, since there's

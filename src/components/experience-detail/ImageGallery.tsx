@@ -30,13 +30,13 @@
 import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
-  Image,
   Pressable,
   FlatList,
   StyleSheet,
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { ImageOff } from 'lucide-react-native';
 
 import { theme } from '@/theme';
@@ -78,7 +78,7 @@ function GalleryImage({ image, index, title, width, onPress }: GalleryImageProps
           <Image
             source={{ uri: image.url }}
             style={StyleSheet.absoluteFillObject}
-            resizeMode="cover"
+            contentFit="cover"
             onLoad={() => setIsLoaded(true)}
             onError={markFailed}
           />

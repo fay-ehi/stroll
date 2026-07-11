@@ -12,6 +12,8 @@
  * constants/experienceCreation.ts for the full redesign rationale:
  *
  *   1. Photos  — the entry point, not step #4. Compulsory (at least one).
+ *      Its own full-screen Cancel/New Post/Next header (PhotoGridPicker.tsx)
+ *      rather than WizardShell — see that component's doc for why.
  *   2. Compose — everything else on one scrollable screen: the photos
  *      just picked previewed at the top, Place search (compulsory),
  *      an optional Title, a compulsory Caption, and category/tags/
@@ -39,7 +41,7 @@ import { useExperienceCreation, usePublishExperience } from '@/hooks/useExperien
 import { showToast } from '@/stores/toastStore';
 import { WizardShell } from '@/components/wizard';
 import {
-  PhotosStep,
+  PhotoGridPicker,
   ComposeStep,
   PreviewStep,
 } from '@/components/experience-creation';
@@ -62,12 +64,10 @@ export default function CreateExperienceScreen() {
 }
 
 // ─── Step Copy ────────────────────────────────────────────────────────────────
+// 'photos' has no entry — PhotoGridPicker.tsx owns its own header, not
+// WizardShell, so it never reads this.
 
-const STEP_COPY: Record<CreationStep, { title: string; subtitle: string }> = {
-  photos: {
-    title: 'Add photos',
-    subtitle: 'Every experience starts with a photo — add at least one to continue.',
-  },
+const STEP_COPY: Record<Exclude<CreationStep, 'photos'>, { title: string; subtitle: string }> = {
   compose: {
     title: 'Tell people about it',
     subtitle: 'Add the place and a caption — everything else is optional.',
@@ -98,13 +98,12 @@ function CreateExperienceWizard() {
     updateTitle,
     setCategory,
     selectPlace,
-    isPickingPhotos,
-    pickPhotos,
+    isAddingPhoto,
+    toggleLibraryAsset,
+    captureFromCamera,
     retryPhotoUpload,
     removePhoto,
     makeCoverPhoto,
-    movePhotoLeft,
-    movePhotoRight,
     updateStory,
     setAmountSpent,
     setVisitType,
@@ -242,6 +241,27 @@ function CreateExperienceWizard() {
     );
   }
 
+  // ── Photos step — its own full-screen Cancel/New Post/Next header, not
+  //    WizardShell (see PhotoGridPicker.tsx's doc for why) ─────────────────
+
+  if (currentStep === 'photos') {
+    return (
+      <PhotoGridPicker
+        photos={draft.photos}
+        isAddingPhoto={isAddingPhoto}
+        onToggleAsset={toggleLibraryAsset}
+        onCaptureFromCamera={() => { void captureFromCamera(); }}
+        onRemovePhoto={(photoId) => { void removePhoto(photoId); }}
+        onRetryPhoto={(photoId) => { void retryPhotoUpload(photoId); }}
+        onMakeCover={makeCoverPhoto}
+        onCancel={handleClose}
+        onNext={onPressContinue}
+        canProceed={canProceed}
+        error={attempted ? stepErrors.photos : undefined}
+      />
+    );
+  }
+
   const copy = STEP_COPY[currentStep];
 
   return (
@@ -275,19 +295,7 @@ function CreateExperienceWizard() {
         )
       }
     >
-      {currentStep === 'photos' ? (
-        <PhotosStep
-          photos={draft.photos}
-          isPicking={isPickingPhotos}
-          onPickPhotos={() => { void pickPhotos(); }}
-          onRemove={(photoId) => { void removePhoto(photoId); }}
-          onRetry={(photoId) => { void retryPhotoUpload(photoId); }}
-          onMakeCover={makeCoverPhoto}
-          onMoveLeft={movePhotoLeft}
-          onMoveRight={movePhotoRight}
-          error={attempted ? stepErrors.photos : undefined}
-        />
-      ) : currentStep === 'compose' ? (
+      {currentStep === 'compose' ? (
         <ComposeStep
           photos={draft.photos}
           onEditPhotos={handleBack}

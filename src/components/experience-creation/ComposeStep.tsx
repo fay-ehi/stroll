@@ -12,7 +12,7 @@
  *   1. The photos just picked, previewed in a horizontal strip (editing
  *      them happens back on the Photos step — `onEditPhotos` returns
  *      there, reusing the wizard's existing Back navigation rather than
- *      duplicating PhotosStep's picker/reorder UI here).
+ *      duplicating PhotoGridPicker's own picker/reorder UI here).
  *   2. Place — compulsory. Collapses to a single row once a place is
  *      selected (PlaceImage thumbnail + name/city, tap to change);
  *      expands to the full search+list (PlaceStep.tsx, reused as-is —
@@ -37,7 +37,8 @@
  */
 
 import React, { useState } from 'react';
-import { View, Image, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { ChevronDown, ChevronUp } from 'lucide-react-native';
 
 import { theme } from '@/theme';
@@ -140,7 +141,7 @@ export function ComposeStep({
               style={styles.photoThumbWrap}
               accessibilityLabel={index === 0 ? 'Cover photo' : undefined}
             >
-              <Image source={{ uri: photo.localUri }} style={styles.photoThumb} resizeMode="cover" />
+              <Image source={{ uri: photo.localUri }} style={styles.photoThumb} contentFit="cover" />
               {index === 0 ? <View style={styles.coverDot} /> : null}
             </View>
           ))}

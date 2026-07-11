@@ -86,6 +86,18 @@ export interface ExperienceDraftPhoto {
   id: string;
   /** Device-local URI from the image picker. Always present, even after upload. */
   localUri: string;
+  /**
+   * expo-media-library asset id — present only when this photo came from
+   * the in-app gallery grid (PhotoGridPicker.tsx), not the camera. Needed
+   * because `localUri` for a gallery pick is a `ph://` asset-library
+   * reference (iOS) — great for display (expo-image renders it directly),
+   * but not something the upload pipeline's `File` (expo-file-system) can
+   * read bytes from. This id lets the upload step resolve a real, readable
+   * `file://` path via `MediaLibrary.getAssetInfoAsync` right before
+   * uploading. Camera captures already have a `file://` `localUri` and
+   * never set this field.
+   */
+  mediaLibraryAssetId?: string;
   /** Public Supabase Storage URL once uploaded — null until `status` is 'uploaded'. */
   remoteUrl: string | null;
   status: PhotoUploadStatus;

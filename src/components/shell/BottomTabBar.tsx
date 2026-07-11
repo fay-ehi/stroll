@@ -68,7 +68,7 @@
  * the tab items themselves don't start until after the extra padding.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Pressable, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -93,16 +93,47 @@ const TAB_ICONS: Record<string, LucideIcon> = {
 
 // Center button diameter — large enough to read as the visually dominant
 // primary action (Design System §21: "Primary buttons should remain
-// visually dominant"), derived from layout.buttonHeight + spacing rather
-// than an arbitrary literal.
-const CREATE_BUTTON_DIAMETER = theme.layout.buttonHeight + theme.spacing.xs; // 48 + 8 = 56
+// visually dominant"), derived from layout.buttonHeight rather than an
+// arbitrary literal. Previously buttonHeight + spacing.xs (56px) — sized
+// down to buttonHeight alone (48px) per feedback that 56px read as too
+// large relative to the other tab icons to feel like part of the same
+// row.
+const CREATE_BUTTON_DIAMETER = theme.layout.buttonHeight; // 48
 
-// How much of the button pokes above the row of tab items — derived
-// from the diameter (roughly half) so it reads as "elevated" without
-// floating so high it looks disconnected from the bar. This amount is
-// now reserved as real space in `container.paddingTop` (see fix #2
-// above) rather than achieved via negative offset.
-const CREATE_BUTTON_RAISE = CREATE_BUTTON_DIAMETER * 0.5;
+// Bug fix #5 (button closer to Search than Saved, and sitting higher
+// than the other tabs): this used to reserve a deliberate "raise" —
+// extra space in `container.paddingTop` so the button's circle poked up
+// above the row like a floating FAB. That visually read as the button
+// sitting noticeably higher than, rather than level with, the other
+// four tab icons, which isn't what this design wants ("it's higher than
+// all the other tabs. It's meant to be aligned"). Removed entirely —
+// `createButtonWrapper` below now centers the button within the row's
+// natural height instead, the same way every tab icon is already
+// centered within its own item.
+
+// Bug fix #6 (button sitting a bit lower than the other tabs, even after
+// fix #5's centering): each tab item centers a [icon, gap, label] BLOCK
+// within the row — which pulls the icon itself above the row's true
+// vertical center, since the label sits below it as part of that same
+// centered block. The Create button has no label, so centering it alone
+// lands its icon exactly at true center — visibly lower than the other
+// tabs' icons, which sit above center by construction. This is that same
+// offset, computed from the real tab-item metrics rather than eyeballed,
+// so a future change to icon size/label size/gap keeps this in sync
+// instead of silently drifting out of alignment again.
+const TAB_ICON_HEIGHT = 24; // Icon size="lg" — see theme/utils.ts's iconSizeToPx
+const TAB_CONTENT_HEIGHT = TAB_ICON_HEIGHT + theme.spacing.xxs + theme.typography.lineHeights.caption;
+// The geometric center-of-icon-vs-center-of-block math above gets close
+// but doesn't fully account for how a filled rounded-square button
+// actually READS relative to a thin-stroke line icon — a solid shape's
+// optical center tends to sit slightly lower than its true geometric
+// center to the eye. This small extra lift is that perceptual
+// correction, layered on top of (not replacing) the derived value above
+// so the reasoning stays traceable rather than collapsing back into one
+// unexplained magic number.
+const CREATE_BUTTON_PERCEPTUAL_ADJUSTMENT = theme.spacing.xxs; // 4
+const CREATE_BUTTON_VERTICAL_NUDGE =
+  TAB_CONTENT_HEIGHT / 2 - TAB_ICON_HEIGHT / 2 + CREATE_BUTTON_PERCEPTUAL_ADJUSTMENT;
 
 // Fixed width reserved for the button in the middle of the row — wider
 // than the button itself so the adjacent tab items' labels never crowd
@@ -112,6 +143,17 @@ const CENTER_GAP_WIDTH = CREATE_BUTTON_DIAMETER + theme.spacing.lg;
 
 export function BottomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+
+  // Plain boolean state + onPressIn/onPressOut, rather than Pressable's
+  // `style={(state) => ...}` function-prop — see bug-fix #3/#4 in the
+  // module doc below: that pattern was silently not being applied at
+  // all in this project (the Pressable rendered at its unstyled
+  // intrinsic content size — just the icon — instead of filling its
+  // parent), most likely due to this project's NativeWind/css-interop
+  // JSX wrapping. Plain state + a plain conditional style array element
+  // is a completely ordinary, statically-analyzable style — no function
+  // for anything to fail to invoke.
+  const [createButtonPressed, setCreateButtonPressed] = useState(false);
 
   // PRD §7's exact order is Discover | Search | Create | Saved | Profile —
   // the 4 real routes are declared in that same left-to-right order in
@@ -191,19 +233,42 @@ export function BottomTabBar({ state, descriptors, navigation }: BottomTabBarPro
       {/* Floating "Create" button — rendered as part of THIS component
           (the actual tab bar React Navigation displays), not as a
           sibling of <Tabs>, so it's guaranteed to paint above every
-          screen's content — see the bug-fix notes in the module doc. */}
+          screen's content — see the bug-fix notes in the module doc.
+
+          Bug fix #4 (icon rendered top-left instead of centered, and
+          only that small area was tappable — reported after fix #3):
+          fix #3 correctly moved the background/shadow out of a
+          function-style prop, but the inner touch layer STILL used one
+          (`style={({ pressed }) => [...]}`) — just narrowed to only
+          toggling opacity. Turns out this project doesn't apply
+          Pressable's function-style prop AT ALL: with no style
+          resolved, the Pressable fell back to its unstyled intrinsic
+          size (just wrapping the Icon, ~24×24) instead of filling the
+          circle — explaining both the off-center icon and the
+          tap-target being limited to that small area. Root cause is
+          almost certainly this project's NativeWind/css-interop JSX
+          wrapping (every component render is wrapped by
+          `react-native-css-interop`'s `wrap-jsx.js` — visible in
+          Metro's own error stack traces) not reconciling that pattern.
+          Fix: `style` is now always a plain array of static style
+          objects — `onPressIn`/`onPressOut` flip a plain `useState`
+          boolean instead of Pressable computing anything itself. No
+          function is ever passed as a `style` prop anywhere in this
+          component now. */}
       <View style={styles.createButtonWrapper} pointerEvents="box-none">
-        <Pressable
-          onPress={handleCreatePress}
-          accessibilityRole="button"
-          accessibilityLabel="Create Experience"
-          style={({ pressed }) => [
-            styles.createButton,
-            { backgroundColor: pressed ? theme.colors.brand.interactive : theme.colors.brand.primary },
-          ]}
-        >
-          <Icon icon={Plus} size="lg" color={theme.colors.static.white} />
-        </Pressable>
+        <View style={styles.createButtonShape}>
+          <Pressable
+            onPress={handleCreatePress}
+            onPressIn={() => setCreateButtonPressed(true)}
+            onPressOut={() => setCreateButtonPressed(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Create Experience"
+            android_ripple={{ color: theme.colors.brand.interactive, borderless: false }}
+            style={[styles.createButtonTouchable, createButtonPressed && styles.createButtonPressed]}
+          >
+            <Icon icon={Plus} size="lg" color={theme.colors.static.white} />
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -229,12 +294,7 @@ const styles = StyleSheet.create({
     backgroundColor:  theme.colors.neutral.background,
     borderTopWidth:   theme.borders.width,
     borderTopColor:   theme.colors.neutral.border,
-    // Reserve the button's raise as REAL height instead of letting it
-    // escape via negative `top` — React Navigation's tab bar wrapper
-    // clips children to its own bounds regardless of this container's
-    // `overflow: visible`, so the button must live inside actual space
-    // (see bug-fix #2 in the module doc).
-    paddingTop:       theme.spacing.sm + CREATE_BUTTON_RAISE,
+    paddingTop:        theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     // Kept for defensive safety — no longer load-bearing for the
     // button's own visibility now that it lives within real bounds,
@@ -260,26 +320,68 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontWeight: theme.typography.weights.medium,
   },
+  // Bug fix #5 (button closer to Search than Saved, and sitting higher
+  // than the other tabs): previously positioned with `left: '50%'` +
+  // `marginLeft: -(diameter / 2)` — percentage-based `left` on an
+  // absolutely positioned view is resolved against the parent's box in
+  // a way that's easy to get subtly wrong (and, per fix #3/#4's pattern
+  // in this exact file, this project has already shown it doesn't
+  // always apply style values the way plain RN would), and the
+  // top-of-container placement relied on a separately reserved "raise"
+  // that pushed it visibly above the other tabs' level rather than
+  // matching it.
+  //
+  // Fix: span the ENTIRE container (`top/bottom/left/right: 0`, no
+  // percentage math at all) and let flexbox's `alignItems`/
+  // `justifyContent: 'center'` center the button both horizontally AND
+  // vertically within the row's actual bounds — the same mechanism
+  // already centering every tab icon, so the button now sits in the
+  // same vertical band as the rest of the row instead of an
+  // independently-computed offset.
   createButtonWrapper: {
-    position:    'absolute',
-    left:        '50%',
-    marginLeft:  -(CREATE_BUTTON_DIAMETER / 2),
-    // Sits at the top of the reserved space (see container.paddingTop
-    // above) instead of a negative offset — stays inside the parent's
-    // real bounds, so it's never clipped or skipped during hit-testing.
-    top:         0,
+    position:       'absolute',
+    top:             0,
+    bottom:          0,
+    left:            0,
+    right:           0,
+    alignItems:      'center',
+    justifyContent:  'center',
     // Defensive stacking on top of the container's own children — not
     // load-bearing now that this lives inside the tab bar itself, but
     // cheap insurance against any future sibling added after it.
     zIndex:      10,
     elevation:   10,
   },
-  createButton: {
-    width:            CREATE_BUTTON_DIAMETER,
-    height:           CREATE_BUTTON_DIAMETER,
-    borderRadius:     theme.radius.full,
-    alignItems:       'center',
-    justifyContent:   'center',
-    ...createButtonShadow,
+  // Always-visible shape — fully static (background/shadow never
+  // change), so nothing about its own visibility depends on press state
+  // or any per-render computation. See bug-fix #3/#4 in the module doc.
+  // Rounded SQUARE, not a circle — `radius.card` (18px, Design System
+  // §9) rather than `radius.full`, per design: a floating action button
+  // that reads as "distinct" without going all the way to a perfect
+  // circle, consistent with every other surface in the app (cards,
+  // images, dialogs) using the same family of corner radii instead of
+  // full-circle treatment (which this design system reserves
+  createButtonShape: {
+  width: CREATE_BUTTON_DIAMETER,
+  height: CREATE_BUTTON_DIAMETER,
+  borderRadius: 10, // less rounded
+  backgroundColor: theme.colors.brand.primary,
+  overflow: 'hidden',
+  marginTop: -(CREATE_BUTTON_VERTICAL_NUDGE + 9), // lift slightly
+  ...createButtonShadow,
+},
+  // Touch layer filling the shape exactly — explicit width/height
+  // (100%) rather than relying on `flex: 1` alone, since this is
+  // exactly the kind of sizing that silently failed to apply before
+  // (see bug-fix #4) — belt-and-suspenders now that it's at least a
+  // plain, statically-analyzable style rather than a function result.
+  createButtonTouchable: {
+    width:          '100%',
+    height:         '100%',
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  createButtonPressed: {
+    opacity: theme.opacity.heavy,
   },
 });

@@ -44,6 +44,14 @@
           "photosPermission": "Stroll accesses your photo library so you can add images to your experiences.",
           "cameraPermission": "Stroll uses your camera to add photos to your experiences."
         }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Stroll accesses your photo library so you can add images to your experiences.",
+          "savePhotosPermission": "Stroll accesses your photo library so you can add images to your experiences.",
+          "isAccessMediaLocationEnabled": false
+        }
       ]
     ],
     "experiments": {
