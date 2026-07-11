@@ -169,6 +169,14 @@ export const STORAGE_KEYS = {
   selectedInterests:    'selectedInterests',
   /** Cached feed scroll position (optional UX restore on return). */
   discoverScrollPos:    'discoverScrollPos',
+  /**
+   * Prefix for a user's in-progress Experience Draft (Sprint 3 Prompt 1).
+   * Not a complete key on its own — experienceDraftService.ts appends
+   * `:${userId}` so drafts never leak across accounts on a shared device
+   * (the same reasoning `queryKeys.users.me()` gets invalidated on
+   * sign-out rather than trusted to naturally scope itself).
+   */
+  experienceDraftPrefix: 'experienceDraft',
 } as const;
 
 export type StorageKey = keyof typeof STORAGE_KEYS;

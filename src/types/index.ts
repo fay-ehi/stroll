@@ -69,3 +69,11 @@ export {
   type DiscoverFeedParams,
   type RelatedExperiencesParams,
 } from './experience';
+export {
+  createEmptyDraft,
+  validateDraftStep,
+  hasValidationErrors as hasDraftValidationErrors,
+  type ExperienceDraft,
+  type ExperienceDraftPatch,
+  type DraftValidationErrors,
+} from './experienceDraft';

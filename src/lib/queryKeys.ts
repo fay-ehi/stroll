@@ -78,7 +78,8 @@ export const queryKeys = {
   places: {
     all: () => ['places'] as const,
     detail: (id: string) => ['places', 'detail', id] as const,
-    search: (query: string) => ['places', 'search', query] as const,
+    /** First used by Sprint 3 Prompt 2's Place step (usePlaceSearch, usePlaces.ts) — city included since results are scoped per-city there, unlike a global search would be. */
+    search: (query: string, city?: string) => ['places', 'search', query, city ?? 'all'] as const,
     featured: (city?: string) => ['places', 'featured', city ?? 'all'] as const,
     byCity: (city: string, category?: string) =>
       ['places', 'by-city', city, category ?? 'all'] as const,

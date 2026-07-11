@@ -24,7 +24,14 @@ import { devLog } from '@/lib/config';
 // ─── Event Vocabulary ────────────────────────────────────────────────────────────
 
 export type AnalyticsEventName =
-  'experience_opened' | 'category_selected' | 'feed_refreshed' | 'recommendation_opened';
+  | 'experience_opened'
+  | 'category_selected'
+  | 'feed_refreshed'
+  | 'recommendation_opened'
+  | 'experience_creation_started'
+  | 'experience_draft_step_completed'
+  | 'experience_draft_discarded'
+  | 'experience_published';
 
 export interface AnalyticsEventProperties {
   experience_opened: {
@@ -35,6 +42,14 @@ export interface AnalyticsEventProperties {
   category_selected: { categoryId: string };
   feed_refreshed: { screen: 'discover' };
   recommendation_opened: { experienceId: string; recommendationType: 'continue_exploring' };
+  /** Fired once per wizard mount when a fresh draft is created (not on Resume — see experienceCreationStore.init). */
+  experience_creation_started: { draftId: string };
+  /** Fired when the user successfully advances past a step's validation. */
+  experience_draft_step_completed: { draftId: string; step: string };
+  /** Fired from the exit-confirmation sheet's "Discard" action. */
+  experience_draft_discarded: { draftId: string; step: string };
+  /** Fired once, on a successful Publish (Sprint 3 Prompt 2) — not on a failed attempt, so this stays a clean "experiences created" count rather than counting retries. */
+  experience_published: { draftId: string; experienceId: string; placeId: string; photoCount: number };
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
@@ -68,4 +83,28 @@ export function trackRecommendationOpened(
   properties: AnalyticsEventProperties['recommendation_opened'],
 ): void {
   trackEvent('recommendation_opened', properties);
+}
+
+export function trackExperienceCreationStarted(
+  properties: AnalyticsEventProperties['experience_creation_started'],
+): void {
+  trackEvent('experience_creation_started', properties);
+}
+
+export function trackExperienceDraftStepCompleted(
+  properties: AnalyticsEventProperties['experience_draft_step_completed'],
+): void {
+  trackEvent('experience_draft_step_completed', properties);
+}
+
+export function trackExperienceDraftDiscarded(
+  properties: AnalyticsEventProperties['experience_draft_discarded'],
+): void {
+  trackEvent('experience_draft_discarded', properties);
+}
+
+export function trackExperiencePublished(
+  properties: AnalyticsEventProperties['experience_published'],
+): void {
+  trackEvent('experience_published', properties);
 }

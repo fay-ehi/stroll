@@ -16,6 +16,7 @@
  */
 
 import 'react-native-url-polyfill/auto';
+import { AppState } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { config } from './config';
@@ -34,6 +35,28 @@ export const supabase = createClient<Database>(
     },
   }
 );
+
+// `autoRefreshToken: true` alone schedules a refresh via a JS timer — on
+// React Native that timer doesn't reliably survive the app being
+// backgrounded (the OS can suspend JS execution entirely), and in dev,
+// Expo's Fast Refresh can reset it on every single edit-triggered
+// reload. Either way, the practical failure mode is the same: the app
+// still *believes* it has a valid session (nothing tells it otherwise),
+// but the access token has quietly expired — for most PostgREST calls
+// this still mostly works because a fresh token gets pulled on the next
+// natural refresh cycle, but Storage requests (like photo uploads) made
+// with the stale token get treated as unauthenticated by RLS, surfacing
+// as a confusing "new row violates row-level security policy" error
+// that looks like a policy misconfiguration rather than an expired
+// token. This is Supabase's own documented fix for React Native:
+// https://supabase.com/docs/reference/javascript/initializing#reactnative-example
+AppState.addEventListener('change', (state) => {
+  if (state === 'active') {
+    supabase.auth.startAutoRefresh();
+  } else {
+    supabase.auth.stopAutoRefresh();
+  }
+});
 
 // ─── Type Helpers ──────────────────────────────────────────────────────────────
 // Convenience types derived from the generated Database type.

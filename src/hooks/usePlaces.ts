@@ -28,12 +28,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '@/lib/queryKeys';
 import { makeError, type StrollError } from '@/lib/errors';
+import { useDebounce } from '@/hooks';
+import { TIMEOUTS } from '@/constants/app';
+import type { PlaceCategoryId } from '@/constants/places';
 import {
   fetchFeaturedPlaces,
   fetchNearbyPlaces,
   fetchPlacesByCity,
   fetchPlacesByCategory,
   fetchPlaceById,
+  searchPlaces,
 } from '@/services/placesService';
 import {
   toPlaceModel,
@@ -58,6 +62,12 @@ const STALE_TIMES = {
   byCategory:  5 * 60 * 1000,
   nearby:      2 * 60 * 1000,
   detail:      5 * 60 * 1000,
+  // Shorter than the others — a search result set going stale a minute
+  // after the user typed it is a non-issue (they've usually already
+  // picked or moved on), but keeping it noticeably shorter than
+  // `byCity`/`byCategory` avoids serving a visibly-stale list back if
+  // they clear and retype the same query within the same session.
+  search:      1 * 60 * 1000,
 } as const;
 
 function isRetryableStrollError(failureCount: number, error: StrollError): boolean {
@@ -165,6 +175,34 @@ export function usePlacesByCategory(params: PlacesByCategoryParams): UsePlacesLi
       return result.data.map((row) => toPlaceModel(row));
     },
     STALE_TIMES.byCategory
+  );
+}
+
+// ─── usePlaceSearch (Sprint 3 Prompt 2 — Experience Creation's Place step) ──────
+// Debounces the raw `query` itself (not a separate "committed query" piece
+// of state) — same reasoning useExperienceCreation.ts's autosave already
+// documents: debounce the *value*, not a manually-managed timer, so the
+// query key naturally settles once typing pauses instead of firing a
+// network request per keystroke.
+
+export interface UsePlaceSearchParams {
+  query:     string;
+  city?:     string;
+  category?: PlaceCategoryId;
+  limit?:    number;
+}
+
+export function usePlaceSearch(params: UsePlaceSearchParams): UsePlacesListResult {
+  const debouncedQuery = useDebounce(params.query, TIMEOUTS.SEARCH_DEBOUNCE_MS);
+
+  return usePlacesListQuery(
+    queryKeys.places.search(debouncedQuery, params.city),
+    async () => {
+      const result = await searchPlaces({ ...params, query: debouncedQuery });
+      if (!result.ok) throw result.error;
+      return result.data.map((row) => toPlaceModel(row));
+    },
+    STALE_TIMES.search
   );
 }
 

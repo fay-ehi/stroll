@@ -59,8 +59,14 @@ export const PAGINATION = {
 export const EXPERIENCE_LIMITS = {
   /** Maximum photos per experience (PRD §8.7). */
   MAX_PHOTOS:                10,
-  /** Minimum photos required to publish. */
-  MIN_PHOTOS:                 0,
+  /**
+   * Minimum photos required to publish. Photos are the entry point into
+   * the creation flow (the 'photos' step — see constants/experienceCreation.ts)
+   * and are compulsory, not optional — a product decision to keep every
+   * published Experience visual-first, the same way Instagram/TikTok
+   * require at least one piece of media before you can post.
+   */
+  MIN_PHOTOS:                 1,
   /** Maximum characters in an experience story. */
   MAX_STORY_LENGTH:        2000,
   /** Maximum lines shown in a card preview (PRD §24). */
@@ -152,6 +158,22 @@ export const COLLECTION_LIMITS = {
   MAX_DESCRIPTION_LENGTH:  300,
 } as const;
 
+// ─── Experience Draft Limits ────────────────────────────────────────────────
+// Bounds for the draft's local-only Title field (see ComposeStep.tsx) — a
+// short, optional working label distinct from the published Experience's
+// `story`/Caption. Deliberately its own object rather than added to
+// EXPERIENCE_LIMITS above — EXPERIENCE_LIMITS governs the *published*
+// experience's story/photos (PRD §8.7 fields, backed by the `experiences`
+// table); a draft's title is a local-only, pre-publish concept the PRD
+// doesn't define bounds for, so this is a deliberate product decision,
+// sized the same way COLLECTION_LIMITS was. There's no MIN — the field is
+// optional, so an empty title is valid; only a maximum keeps it scannable
+// once filled in.
+
+export const EXPERIENCE_DRAFT_LIMITS = {
+  MAX_TITLE_LENGTH: 80,
+} as const;
+
 // ─── Timeouts ─────────────────────────────────────────────────────────────────
 
 export const TIMEOUTS = {
@@ -159,6 +181,8 @@ export const TIMEOUTS = {
   API_REQUEST_MS:         15_000,
   /** Debounce delay for search input in milliseconds. */
   SEARCH_DEBOUNCE_MS:        400,
+  /** Debounce delay before an in-progress draft (e.g. Experience Creation) auto-saves. */
+  AUTOSAVE_DEBOUNCE_MS:      800,
   /** Toast display duration (Design System §36: 3 seconds). */
   TOAST_DURATION_MS:       3_000,
   /** Splash screen minimum display time. */

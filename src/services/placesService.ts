@@ -10,9 +10,16 @@
  * This is the ONLY file that talks to the `places` table or the
  * `nearby_places` RPC directly. Screens/hooks go through `usePlaces.ts`.
  *
- * Search is explicitly out of scope for this sprint (see brief) — there is
- * no `searchPlaces()` here despite `queryKeys.places.search` already
- * existing in the key factory (Sprint 0 scaffold, unused until then).
+ * Sprint 3 Prompt 2 adds `searchPlaces()` — the first use of
+ * `queryKeys.places.search`, reserved since the Sprint 0 scaffold. This
+ * is deliberately a search over places already indexed in THIS table,
+ * not the real PRD §8.7 Place Search (an external Google Places/Mapbox
+ * lookup) — that's still Sprint 4 scope; see app/(modals)/place-search.tsx's
+ * own doc comment. Framing it this way (rather than quietly expanding
+ * this sprint into a provider integration) keeps this an interim,
+ * swappable implementation: PlaceStep.tsx (the caller) only depends on
+ * this function's signature, so replacing the body with a real provider
+ * call in Sprint 4 doesn't touch the wizard at all.
  */
 
 import { supabase } from '@/lib/supabase';
@@ -157,6 +164,53 @@ export async function fetchPlaceById(
       .select('*')
       .eq('id', id)
       .maybeSingle();
+
+    if (error) return fail(error);
+    return ok(data);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Search Places (Sprint 3 Prompt 2 — Experience Creation's Place step) ────────
+// See this file's module doc for why this is an interim, in-table search
+// rather than the real PRD §8.7 provider-backed Place Search.
+
+export interface SearchPlacesParams {
+  /** Empty/whitespace-only query returns a browsable default list (alphabetical) instead of no results — a blank search field shouldn't read as "nothing to show". */
+  query:     string;
+  city?:     string;
+  category?: PlaceCategoryId;
+  limit?:    number;
+}
+
+export async function searchPlaces(params: SearchPlacesParams): Promise<PlacesResult<PlaceRow[]>> {
+  try {
+    const trimmed = params.query.trim();
+
+    let query = supabase.from('places').select('*');
+
+    if (trimmed) {
+      // Actively searching by name: name match is the whole point, so
+      // it's the ONLY filter applied. Originally this also AND-ed in
+      // `.eq('city', ...)` / `.eq('category', ...)` whenever they were
+      // provided — but those are plain-text/enum equality checks, and a
+      // profile city like "Abuja" vs. a place row stored as "abuja" (or
+      // any other casing/formatting drift) silently zeroed out the
+      // entire result set even for an exact, correct name match. A
+      // search bar should never come back empty just because of an
+      // unrelated filter the user can't see or control.
+      query = query.ilike('name', `%${trimmed}%`).order('experience_count', { ascending: false });
+    } else {
+      // Browsing (no query yet): city/category are safe here since
+      // there's no name match they could contradict — worst case is an
+      // empty *browse* list, not a broken search.
+      if (params.city) query = query.ilike('city', params.city);
+      if (params.category) query = query.eq('category', params.category);
+      query = query.order('name', { ascending: true });
+    }
+
+    const { data, error } = await query.limit(params.limit ?? DEFAULT_LIMIT);
 
     if (error) return fail(error);
     return ok(data);

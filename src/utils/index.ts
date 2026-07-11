@@ -233,6 +233,20 @@ export const VALIDATION = {
   isValidUuid(value: string): boolean {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   },
+
+  /**
+   * Generic bounded-text check: trims, then requires length within
+   * [min, max]. Used by domain validators (e.g. an experience draft's
+   * title/description in types/experienceDraft.ts) that need the same
+   * shape of check `isValidDisplayName`/`isValidBio` already apply, but
+   * for a field whose limits live in a different constants object —
+   * kept here instead of copy-pasting the trim+length-check pattern a
+   * third time.
+   */
+  isWithinLength(value: string, min: number, max: number): boolean {
+    const trimmed = value.trim();
+    return trimmed.length >= min && trimmed.length <= max;
+  },
 } as const;
 
 // ─── Platform Utilities ────────────────────────────────────────────────────────
@@ -253,6 +267,26 @@ export const PLATFORM = {
     return options.default;
   },
 } as const;
+
+// ─── Id Utilities ───────────────────────────────────────────────────────────────
+
+/**
+ * Generates a client-side-only unique id for records that don't have a
+ * server-assigned id yet (e.g. a local Experience Draft — see
+ * types/experienceDraft.ts — before it's ever synced to Supabase).
+ *
+ * Deliberately NOT a UUID — `VALIDATION.isValidUuid` exists specifically
+ * to recognize Supabase's server-assigned uuid primary keys, and a local
+ * id should be visually distinguishable from one so a future sync bug
+ * (accidentally treating a local id as a real row id) fails loudly
+ * instead of silently querying Supabase with a well-formed-looking uuid
+ * that just happens not to exist. No new dependency (e.g. `expo-crypto`,
+ * `uuid`) is warranted for what's otherwise a one-line generator.
+ */
+export function generateLocalId(prefix: string): string {
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${prefix}_${Date.now().toString(36)}${random}`;
+}
 
 // ─── Array Utilities ───────────────────────────────────────────────────────────
 

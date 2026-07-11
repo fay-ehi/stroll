@@ -34,3 +34,9 @@ export {
   type AvatarUploadStage,
   type ProfileDraft,
 } from './profileStore';
+
+export {
+  useExperienceCreationStore,
+  type CreationStatus,
+  type ExperienceCreationState,
+} from './experienceCreationStore';

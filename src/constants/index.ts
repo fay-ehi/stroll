@@ -19,6 +19,7 @@ export {
   GOOD_FOR_TAGS,
   VIBE_TAGS,
   COLLECTION_LIMITS,
+  EXPERIENCE_DRAFT_LIMITS,
   TIMEOUTS,
   IMAGE_CONFIG,
   FEATURE_FLAGS,
@@ -39,3 +40,12 @@ export {
   APP_SCHEME,
   buildShareableLink,
 } from './routes';
+
+export {
+  CREATION_STEPS,
+  CREATION_STEP_COUNT,
+  FIRST_CREATION_STEP,
+  isLastCreationStep,
+  creationStepIndex,
+  type CreationStep,
+} from './experienceCreation';

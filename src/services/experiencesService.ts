@@ -18,8 +18,12 @@
  * "Experiences by this user", etc.) the same way placesService already is.
  *
  * This is the ONLY file that talks to the `experiences` /
- * `experience_photos` tables directly. Screens/hooks go through
- * `useDiscoverFeed.ts`.
+ * `experience_photos` tables directly, and — as of Sprint 3 Prompt 2 —
+ * the ONLY file that talks to the `EXPERIENCE_BUCKET` storage bucket
+ * (mirrors profileService.ts owning `AVATAR_BUCKET` for the same
+ * reason). Screens/hooks go through `useDiscoverFeed.ts` for reads and
+ * `useExperienceCreation.ts` for the write path (`uploadExperiencePhoto`
+ * / `createExperience`).
  *
  * ── Pagination strategy ──
  * Keyset (cursor) pagination, not offset — offset pagination silently
@@ -34,10 +38,12 @@
 
 import { supabase } from '@/lib/supabase';
 import { normalizeError, makeError, type StrollError } from '@/lib/errors';
-import { PAGINATION } from '@/constants/app';
+import { devLog } from '@/lib/config';
+import { PAGINATION, IMAGE_CONFIG } from '@/constants/app';
 import { VALIDATION } from '@/utils';
 import type { PlaceCategoryId } from '@/constants/places';
 import type { ExperienceFeedRow, ExperienceDetailRow, DiscoverSortMode } from '@/types/experience';
+import type { AmountSpent, VisitType, GoodForTag, VibeTag } from '@/constants/app';
 
 // ─── Result Type ───────────────────────────────────────────────────────────────
 
@@ -389,6 +395,168 @@ export async function fetchExperiencesByUser(params: {
         : null;
 
     return ok({ rows, nextCursor });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Upload Experience Photo (Sprint 3 Prompt 2) ─────────────────────────────────
+// Same File-based read + `.upload()` pattern as profileService.ts's
+// uploadAvatar — see that function's doc for why `expo-file-system`'s
+// `File` class is used instead of fetch()-ing the URI into a blob (the
+// approach this codebase settled on for React Native/Hermes). Namespaced
+// `${userId}/${draftId}/${photoId}.${ext}` rather than avatar's flatter
+// `${userId}/avatar.${ext}` — a draft can hold up to
+// EXPERIENCE_LIMITS.MAX_PHOTOS files, and a user can have more than one
+// abandoned draft over time, so both segments are needed to avoid
+// collisions.
+
+import { File } from 'expo-file-system';
+
+export async function uploadExperiencePhoto(params: {
+  userId:   string;
+  draftId:  string;
+  photoId:  string;
+  uri:      string;
+  mimeType?: string;
+}): Promise<ExperiencesResult<string>> {
+  const mimeType = params.mimeType ?? 'image/jpeg';
+
+  try {
+    const file = new File(params.uri);
+
+    if (file.size > IMAGE_CONFIG.MAX_FILE_SIZE_BYTES) {
+      return fail(makeError('VALIDATION_ERROR', 'Image is too large. Please choose a file under 5MB.'));
+    }
+
+    const bytes = await file.bytes();
+    const ext = mimeType.split('/')[1] ?? 'jpg';
+    const filePath = `${params.userId}/${params.draftId}/${params.photoId}.${ext}`;
+
+    
+
+    const { error: uploadError } = await supabase.storage
+      .from(IMAGE_CONFIG.EXPERIENCE_BUCKET)
+      // upsert: false (the default) is deliberate, not an oversight —
+      // `photoId` comes from generateLocalId('photo'), so this exact
+      // path has never been written before; there's nothing to upsert
+      // over. `upsert: true` (copied from profileService.ts's
+      // uploadAvatar, where overwriting the SAME path on every re-upload
+      // is the whole point) makes Storage check whether the object
+      // already exists to decide insert-vs-update, and that existence
+      // check needs permissions this bucket's policies don't grant (only
+      // INSERT/DELETE exist on `experience-photos` — no SELECT/UPDATE,
+      // unlike `avatars`, which has both). That mismatch is what was
+      // actually surfacing as "new row violates row-level security
+      // policy" — not an auth/token problem, which the diagnostic above
+      // already ruled out.
+      .upload(filePath, bytes, { contentType: mimeType });
+
+    if (uploadError) return fail(uploadError);
+
+    const { data } = supabase.storage.from(IMAGE_CONFIG.EXPERIENCE_BUCKET).getPublicUrl(filePath);
+    return ok(data.publicUrl);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Extracts the storage object path from a public URL — see profileService.ts's identically-shaped (but AVATAR_BUCKET-scoped) private helper; kept as its own small per-file copy rather than a shared cross-cutting utility, matching that file's existing convention. */
+function extractExperiencePhotoPath(publicUrl: string): string | null {
+  const marker = `/${IMAGE_CONFIG.EXPERIENCE_BUCKET}/`;
+  const idx = publicUrl.indexOf(marker);
+  if (idx === -1) return null;
+  return publicUrl.slice(idx + marker.length);
+}
+
+/**
+ * Best-effort delete of an uploaded photo's storage object — used when a
+ * user removes a photo mid-draft, or discards a draft that had already
+ * uploaded some photos. Never throws: an orphaned file left behind if
+ * this fails is a minor cleanup cost, not something that should block
+ * the user's remove/discard action (same tradeoff removeAvatar() in
+ * profileService.ts already makes).
+ */
+export async function deleteExperiencePhoto(publicUrl: string): Promise<void> {
+  const path = extractExperiencePhotoPath(publicUrl);
+  if (!path) return;
+  try {
+    await supabase.storage.from(IMAGE_CONFIG.EXPERIENCE_BUCKET).remove([path]);
+  } catch {
+    // Best-effort — see doc above.
+  }
+}
+
+// ─── Create Experience (Sprint 3 Prompt 2 — Publishing) ──────────────────────────
+// The only place a new `experiences` row (and its `experience_photos`
+// rows) is ever written from the client.
+//
+// No Postgres function/RPC exists for this yet (that would need a
+// migration this sprint doesn't have visibility into), so the two
+// inserts below aren't atomic the way a single transaction would be.
+// Rather than leave a photo-less "orphan" Experience behind if the
+// second insert fails, the first insert is compensated with a best-effort
+// delete — the net effect is the same as a transaction from the caller's
+// point of view: either both rows exist, or neither does, so retrying a
+// failed publish from scratch (see usePublishExperience in
+// useExperienceCreation.ts) can never create a duplicate.
+
+export interface CreateExperienceInput {
+  userId:         string;
+  placeId:        string;
+  city:           string;
+  story:          string;
+  amountSpent:    AmountSpent | null;
+  visitType:      VisitType | null;
+  wouldRecommend: boolean | null;
+  goodForTags:    GoodForTag[];
+  vibeTags:       VibeTag[];
+  /** Already in final display order — index 0 becomes `experience_photos.position` 0, the cover. */
+  photoUrls:      string[];
+}
+
+export async function createExperience(input: CreateExperienceInput): Promise<ExperiencesResult<string>> {
+  try {
+    const { data: inserted, error: insertError } = await supabase
+      .from('experiences')
+      .insert({
+        user_id:         input.userId,
+        place_id:        input.placeId,
+        city:            input.city,
+        story:           input.story,
+        amount_spent:    input.amountSpent,
+        visit_type:      input.visitType,
+        would_recommend: input.wouldRecommend,
+        good_for_tags:   input.goodForTags,
+        vibe_tags:       input.vibeTags,
+      })
+      .select('id')
+      .single();
+
+    if (insertError) return fail(insertError);
+    if (!inserted) return fail(makeError('SERVER_ERROR', 'Experience insert returned no row.'));
+
+    if (input.photoUrls.length > 0) {
+      const photoRows = input.photoUrls.map((photo_url, position) => ({
+        experience_id: inserted.id,
+        photo_url,
+        position,
+      }));
+
+      const { error: photosError } = await supabase.from('experience_photos').insert(photoRows);
+
+      if (photosError) {
+        // Compensating rollback — see module doc above. Best-effort: if
+        // this delete itself fails, the experience row is left behind
+        // without photos rather than risking a worse, silent data-loss
+        // path; either way the caller still reports failure and
+        // preserves the local draft so the user can retry cleanly.
+        await supabase.from('experiences').delete().eq('id', inserted.id);
+        return fail(makeError('SERVER_ERROR', "Your experience couldn't be fully saved. Please try again."));
+      }
+    }
+
+    return ok(inserted.id);
   } catch (err) {
     return fail(err);
   }
