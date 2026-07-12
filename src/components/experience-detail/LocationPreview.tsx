@@ -3,9 +3,7 @@
  * src/components/experience-detail/LocationPreview.tsx
  *
  * Requirement #8 — Location Preview: "Place name, Address, Distance from
- * user (if available), Static preview. Do not build the interactive map
- * yet. Provide a clean architecture so Sprint 4 can replace this section
- * with a live map."
+ * user (if available), Static preview."
  *
  * Distance from user isn't rendered — there's no geolocation
  * infrastructure anywhere in this app yet (no `expo-location`, no
@@ -15,28 +13,23 @@
  * useNearbyPlaces()); this component accepts it as an optional prop so
  * wiring it in later is additive, not a rewrite.
  *
- * "Static preview" here is an honest placeholder box, not a screenshot —
- * faking a map image would be misleading. Tapping through to the full
- * Place page (which DOES exist as a route already) is real navigation,
- * not a placeholder — PRD §8: "Place pages are accessible only through:
- * An Experience (tapping the place tag)..." — this is exactly that tap.
- *
- * Clean architecture for Sprint 4: this component's public contract is
- * just `{ place, distanceKm? }` — the same props a `<PlaceMapPreview>`
- * (rendering a real `MapView` centered on `place.latitude/longitude`)
- * would need. Sprint 4 can add that component and swap which one
- * app/(app)/experience/[id].tsx renders without touching any prop shape
- * here or anywhere upstream of it.
+ * "Static preview" is a real `MapView` (via LocationPreviewMap) centered
+ * on `place.latitude/longitude`, with every gesture disabled — pan,
+ * pinch-zoom, rotate, and pitch — so it reads as a picture of where the
+ * place is, not a navigable map. Tapping the card (map included, since
+ * the map itself doesn't intercept touches) navigates to the full Place
+ * page, same as before.
  */
 
 import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
-import { MapPin, ChevronRight } from 'lucide-react-native';
+import { ChevronRight } from 'lucide-react-native';
 
 import { theme } from '@/theme';
 import { H5, Body, Caption, Icon } from '@/components/ui';
 import { ROUTES } from '@/constants/routes';
+import { LocationPreviewMap } from './LocationPreviewMap';
 import type { PlaceSummary } from '@/types/experience';
 
 export interface LocationPreviewProps {
@@ -61,8 +54,11 @@ export function LocationPreview({ place, distanceKm }: LocationPreviewProps) {
         accessibilityLabel={`View ${place.name} on its Place page`}
       >
         <View style={styles.mapPlaceholder}>
-          <Icon icon={MapPin} size="lg" color={theme.colors.text.tertiary} />
-          <Caption color={theme.colors.text.tertiary}>Map view coming soon</Caption>
+          <LocationPreviewMap
+            latitude={place.latitude}
+            longitude={place.longitude}
+            name={place.name}
+          />
         </View>
 
         <View style={styles.infoRow}>
@@ -95,10 +91,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   mapPlaceholder: {
-    height: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: theme.spacing.xxs,
+    height: 140,
     backgroundColor: theme.colors.neutral.backgroundSecondary,
   },
   infoRow: {

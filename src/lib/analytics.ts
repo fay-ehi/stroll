@@ -34,12 +34,13 @@ export type AnalyticsEventName =
   | 'experience_published'
   | 'experience_edit_started'
   | 'experience_updated'
-  | 'experience_deleted';
+  | 'experience_deleted'
+  | 'place_viewed';
 
 export interface AnalyticsEventProperties {
   experience_opened: {
     experienceId: string;
-    source: 'discover_feed' | 'related' | 'continue_exploring';
+    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail';
   };
   /** Not fired anywhere in Discover as of this sprint — category selection lives in Search now (see CategoriesRow's doc). Defined and ready for Search to call. */
   category_selected: { categoryId: string };
@@ -59,6 +60,8 @@ export interface AnalyticsEventProperties {
   experience_updated: { experienceId: string; photoCount: number };
   /** Fired once, on a successful delete from the creator Profile grid. */
   experience_deleted: { experienceId: string };
+  /** Fired once per Place Detail screen load, when the place resolves (Sprint 4 Prompt 1) — mirrors useExperienceDetail's recordExperienceView keying, so a background refetch of the same place doesn't re-fire this. */
+  place_viewed: { placeId: string };
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
@@ -76,6 +79,10 @@ export function trackExperienceOpened(
   properties: AnalyticsEventProperties['experience_opened'],
 ): void {
   trackEvent('experience_opened', properties);
+}
+
+export function trackPlaceViewed(properties: AnalyticsEventProperties['place_viewed']): void {
+  trackEvent('place_viewed', properties);
 }
 
 export function trackCategorySelected(

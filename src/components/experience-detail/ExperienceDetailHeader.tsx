@@ -20,9 +20,9 @@
  *     missing values" — both are simply omitted rather than faked.
  *
  * The creator mention here is intentionally a compact single line (small
- * avatar + name + verified badge) — CreatorSection, further down the
- * page, is the fuller expandable block (bio, total experiences). Tapping
- * either is architected the same way (see CreatorSection's doc).
+ * avatar + name + verified badge) — the only creator identity shown on
+ * this screen. A fuller block (bio, total experiences) used to repeat
+ * lower on the page but was removed as redundant; this one is enough.
  */
 
 import React from 'react';
@@ -36,7 +36,7 @@ import type { ExperienceDetailModel } from '@/types/experience';
 
 export interface ExperienceDetailHeaderProps {
   experience: ExperienceDetailModel;
-  /** Called when the inline creator mention is tapped — see CreatorSection's doc for why this is a placeholder for now. */
+  /** Called when the inline creator mention is tapped — a placeholder until Public Profile is built. */
   onCreatorPress?: () => void;
 }
 

@@ -6,16 +6,21 @@
  * Layout follows the product-provided wireframe:
  *   [📍 city selector]     Stroll     [🔔 notifications]
  *   For You | Following
- *   Continue Exploring (horizontal rail)
  *   Experience Card
  *   Experience Card
  *   ...
  *
+ * "Continue Exploring" (a horizontal rail that used to sit above the
+ * feed) has been removed entirely per product direction — the For You
+ * panel's list header is now empty (see `forYouListHeader` below), left
+ * in place only as a slot for whatever panel-specific content comes
+ * next (e.g. the Collections carousel).
+ *
  * Swipe-between-tabs, corrected structure: the top bar and the
  * For You/Following tab control are shared chrome — rendered EXACTLY
  * ONCE here, above <SwipeableTabs>. Only the content that's genuinely
- * different per tab (the feed itself, "Continue Exploring") lives inside
- * the pager's two panels (<ForYouFeed>, <FollowingFeed>).
+ * different per tab (the feed itself) lives inside the pager's two
+ * panels (<ForYouFeed>, <FollowingFeed>).
  *
  * This replaces an earlier version that built the top bar + tabs
  * separately inside EACH panel's own header. That looked fine with one
@@ -43,9 +48,6 @@
  *     useInfiniteDiscoverFeed's doc in useDiscoverFeed.ts. Nothing about
  *     this screen changed to support it; `interests` is just one more
  *     param passed to useDiscoverFeed().
- *   - "Continue Exploring" (requirement #2) is a rail inside the For You
- *     panel's own list header — reuses ExperienceRail (the same UI
- *     Related Experiences already uses on the detail screen).
  *   - Offline indicator (requirement #4) — <OfflineBanner /> pinned above
  *     each panel's own list (loading/empty/main), reusing
  *     useNetworkStatus internally rather than each screen re-deriving
@@ -67,7 +69,6 @@ import { theme } from '@/theme';
 import {
   DiscoverTopBar,
   DiscoverTabs,
-  ExperienceRail,
   SwipeableTabs,
   ForYouFeed,
   FollowingFeed,
@@ -91,7 +92,7 @@ export default function DiscoverScreen() {
 
   const city = profile?.city ?? undefined;
   const interests = profile?.interests ?? [];
-  const { feed, continueExploring, sort, refresh, isRefreshing } = useDiscoverFeed({
+  const { feed, sort, refresh, isRefreshing } = useDiscoverFeed({
     city,
     interests,
   });
@@ -112,22 +113,12 @@ export default function DiscoverScreen() {
     previousFeedError.current = feed.error;
   }, [feed.isError, feed.error, feed.experiences.length]);
 
-  // ── For You panel's own list header: just "Continue Exploring" now —
-  // top bar + tabs moved out to the screen level (see module doc). ───────────
-  const forYouListHeader = useMemo(
-    () => (
-      <View style={styles.forYouHeaderStack}>
-        <ExperienceRail
-          title="Continue Exploring"
-          experiences={continueExploring.experiences}
-          isLoading={continueExploring.isLoading}
-          source="continue_exploring"
-        />
-        {/* Collections carousel slot — not wired yet, see module doc. */}
-      </View>
-    ),
-    [continueExploring.experiences, continueExploring.isLoading],
-  );
+  // For You panel's own list header — Continue Exploring was removed
+  // entirely per product direction; nothing panel-specific remains here
+  // today. Kept as its own memoized element (rather than folded away)
+  // so a future rail/carousel has an obvious slot to land in, same as
+  // emptyListHeader below.
+  const forYouListHeader = useMemo(() => <View style={styles.forYouHeaderStack} />, []);
 
   // Following has no panel-specific header content today — passing an
   // empty element (rather than null) keeps ForYouFeed/FollowingFeed's

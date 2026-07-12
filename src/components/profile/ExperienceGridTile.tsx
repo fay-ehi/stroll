@@ -11,13 +11,15 @@
  * always appropriate here, unlike ExperienceCard (src/components/discover)
  * which also renders other people's experiences on Discover.
  *
- * Tap the tile → Experience Details (view — requirement #1). The small
- * "⋮" button in the corner → Edit / Delete, via Alert.alert — the same
- * lightweight action-sheet pattern this screen's own handleAvatarPress
- * already uses (app/(app)/(tabs)/profile.tsx). Deliberately a real button
- * rather than a long-press-only gesture: requirement #10 (Accessibility)
- * asks for accessible action buttons, and a long-press has no
- * screen-reader-discoverable equivalent without one.
+ * Tap the tile → Experience Details (view — requirement #1). Long-press
+ * the tile → Edit / Delete, via Alert.alert — the same lightweight
+ * action-sheet pattern this screen's own handleAvatarPress already uses
+ * (app/(app)/(tabs)/profile.tsx). Replaces an earlier corner "⋮" button
+ * per product direction (cleaner tile, no icon sitting on top of the
+ * photo). A screen reader has no built-in gesture for "long press", so
+ * the same handler is also exposed as a custom accessibilityAction
+ * ("Manage") on the tile — VoiceOver/TalkBack users reach it through the
+ * actions rotor instead of a physical long-press.
  *
  * React.memo'd per requirement #11 ("Memoized Experience Cards") — this
  * grid can be dozens of cells long once pagination kicks in, and no tile
@@ -28,7 +30,7 @@
 import React, { memo, useCallback } from 'react';
 import { View, Pressable, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
-import { MoreVertical, ImageOff } from 'lucide-react-native';
+import { ImageOff } from 'lucide-react-native';
 
 import { Icon } from '@/components/ui';
 import { theme } from '@/theme';
@@ -43,10 +45,10 @@ export interface ExperienceGridTileProps {
 }
 
 function ExperienceGridTileComponent({ experience, size, onPress, onEdit, onDelete }: ExperienceGridTileProps) {
-  // Two-step: the corner button opens Edit/Delete/Cancel; Delete itself
-  // opens a second, explicit confirmation — requirement #5's "Confirmation
-  // dialog" for Delete specifically, on top of (not instead of) the first
-  // action-sheet tap.
+  // Two-step: long-pressing the tile opens Edit/Delete/Cancel; Delete
+  // itself opens a second, explicit confirmation — requirement #5's
+  // "Confirmation dialog" for Delete specifically, on top of (not
+  // instead of) the first action-sheet tap.
   const handleManagePress = useCallback(() => {
     Alert.alert(experience.title || 'Manage experience', undefined, [
       { text: 'Edit', onPress: () => onEdit(experience) },
@@ -73,8 +75,15 @@ function ExperienceGridTileComponent({ experience, size, onPress, onEdit, onDele
       <Pressable
         style={styles.fill}
         onPress={() => onPress(experience)}
+        onLongPress={handleManagePress}
         accessibilityRole="button"
         accessibilityLabel={experience.title}
+        accessibilityActions={[{ name: 'longpress', label: 'Manage' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'longpress') {
+            handleManagePress();
+          }
+        }}
       >
         {experience.coverImage ? (
           <Image
@@ -88,16 +97,6 @@ function ExperienceGridTileComponent({ experience, size, onPress, onEdit, onDele
             <Icon icon={ImageOff} size="md" color={theme.colors.text.tertiary} />
           </View>
         )}
-      </Pressable>
-
-      <Pressable
-        style={styles.manageButton}
-        onPress={handleManagePress}
-        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-        accessibilityRole="button"
-        accessibilityLabel={`Manage "${experience.title}"`}
-      >
-        <Icon icon={MoreVertical} size="xs" color={theme.colors.static.white} />
       </Pressable>
     </View>
   );
@@ -114,16 +113,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.neutral.border,
-  },
-  manageButton: {
-    position: 'absolute',
-    top: theme.spacing.xxs,
-    right: theme.spacing.xxs,
-    width: 22,
-    height: 22,
-    borderRadius: theme.radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.static.black,
   },
 });

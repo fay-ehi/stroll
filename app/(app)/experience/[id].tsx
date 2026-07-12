@@ -4,7 +4,9 @@
  *
  * PRD §8.6 — Full view of an Experience post. Sprint 2 Prompt 2:
  * the canonical detail page — header, gallery, description, metadata,
- * location preview, creator section, related experiences, action bar.
+ * location preview, related experiences, action bar. The creator is
+ * shown once, in the header — the separate bottom creator block (name,
+ * bio, avatar) was removed as redundant.
  *
  * Navigation: reached from every Experience Card with only the
  * experience's id (see ExperienceCard.tsx's onPress) — never a passed
@@ -35,7 +37,6 @@ import {
   ExperienceDescription,
   ExperienceMetadata,
   LocationPreview,
-  CreatorSection,
   RelatedExperiences,
   ExperienceActionBar,
   ExperienceDetailSkeleton,
@@ -161,7 +162,6 @@ export default function ExperienceDetailScreen() {
           <ExperienceDescription story={experience.story} />
           <ExperienceMetadata experience={experience} />
           <LocationPreview place={experience.place} />
-          <CreatorSection creator={experience.creator} onPress={handleCreatorPress} />
         </View>
 
         <View style={styles.relatedSpacing}>

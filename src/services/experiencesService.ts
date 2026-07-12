@@ -399,6 +399,68 @@ export async function fetchExperiencesByUser(params: {
   }
 }
 
+// ─── Fetch Experiences By Place (Sprint 4 Prompt 1) ─────────────────────────────
+// Backs the Place Detail screen's "Community Experiences" section — the
+// same "experiences filtered by a foreign key" shape as
+// fetchExperiencesByUser() immediately above, reusing its cursor helpers
+// rather than a third pagination implementation. queryKeys.experiences
+// .byPlace() was already reserved for exactly this (see that key's own
+// comment in queryKeys.ts). Newest-first, same reasoning as the user
+// gallery: a place page isn't personalized or re-ranked.
+
+interface PlaceExperiencesCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface PlaceExperiencesPage {
+  rows: ExperienceFeedRow[];
+  nextCursor: string | null;
+}
+
+export async function fetchExperiencesByPlace(params: {
+  placeId: string;
+  limit?: number;
+  cursor?: string | null;
+}): Promise<ExperiencesResult<PlaceExperiencesPage>> {
+  try {
+    const limit = params.limit ?? DEFAULT_LIMIT;
+    let query = supabase
+      .from('experiences')
+      .select(SELECT_COLUMNS)
+      .eq('place_id', params.placeId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(limit);
+
+    if (params.cursor) {
+      const cursor = decodeCursor<PlaceExperiencesCursor>(params.cursor);
+      if (cursor) {
+        query = query.or(
+          buildKeysetFilter([
+            { name: 'created_at', value: cursor.createdAt },
+            { name: 'id', value: cursor.id },
+          ]),
+        );
+      }
+    }
+
+    const { data, error } = await query;
+    if (error) return fail(error);
+
+    const rows = data as unknown as ExperienceFeedRow[];
+    const last = rows[rows.length - 1];
+    const nextCursor =
+      rows.length === limit && last
+        ? encodeCursor({ createdAt: last.created_at, id: last.id })
+        : null;
+
+    return ok({ rows, nextCursor });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ─── Upload Experience Photo (Sprint 3 Prompt 2) ─────────────────────────────────
 // Same File-based read + `.upload()` pattern as profileService.ts's
 // uploadAvatar — see that function's doc for why `expo-file-system`'s

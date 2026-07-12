@@ -32,9 +32,10 @@
  *     now also carries a Drafts tile (always first — see
  *     src/components/profile/DraftsTile.tsx) and each published tile's
  *     tap now opens Experience Details, with a management action sheet
- *     (Edit / Delete — src/components/profile/ExperienceGridTile.tsx)
- *     reachable from a small per-tile button. Superseded the "Tapping a
- *     gallery photo currently does nothing" line this doc used to have.
+ *     (Edit / Delete) reachable by long-pressing the tile — see
+ *     src/components/profile/ExperienceGridTile.tsx. Superseded the
+ *     "Tapping a gallery photo currently does nothing" line this doc
+ *     used to have.
  *
  * Log Out lives here (not Settings) for now, since Settings is still a
  * placeholder (Sprint 4). Move this into Settings once that screen ships
@@ -589,6 +590,7 @@ const styles = StyleSheet.create({
   },
   gridRow: {
     gap: GRID_GAP,
+    marginBottom: GRID_GAP,
   },
   emptyGallery: {
     paddingVertical: theme.spacing.xxl,

@@ -48,7 +48,7 @@
  */
 
 import React from 'react';
-import { View, Pressable, StyleSheet, type ViewStyle } from 'react-native';
+import { View, Pressable, StyleSheet, Platform, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Bookmark, Heart, MapPin, BadgeCheck, ImageOff } from 'lucide-react-native';
@@ -113,7 +113,7 @@ const CoverImage = React.memo(function CoverImage({
 // ─── Experience Card ──────────────────────────────────────────────────────────────
 
 export type ExperienceCardVariant = 'standard' | 'featured';
-export type ExperienceCardSource = 'discover_feed' | 'related' | 'continue_exploring';
+export type ExperienceCardSource = 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail';
 
 export interface ExperienceCardProps {
   experience: ExperienceCardModel;
@@ -172,76 +172,78 @@ export const ExperienceCard = React.memo(function ExperienceCard({
       accessibilityLabel={`Experience at ${title} by ${creator.displayName}`}
     >
       <Card variant="elevated" padding={0} style={styles.card}>
-        <View style={styles.coverWrapper}>
-          <CoverImage
-            uri={coverImage?.url ?? null}
-            accessibilityLabel={`Photo from an experience at ${title}`}
-            aspectRatio={COVER_ASPECT_RATIO[variant]}
-          />
+        <View style={styles.cardInner}>
+          <View style={styles.coverWrapper}>
+            <CoverImage
+              uri={coverImage?.url ?? null}
+              accessibilityLabel={`Photo from an experience at ${title}`}
+              aspectRatio={COVER_ASPECT_RATIO[variant]}
+            />
 
-          {featured ? (
-            <Badge label="Featured" variant="primary" style={styles.featuredBadge} />
-          ) : null}
+            {featured ? (
+              <Badge label="Featured" variant="primary" style={styles.featuredBadge} />
+            ) : null}
 
-          <Pressable
-            onPress={handleSavePress}
-            hitSlop={hitSlop(SAVE_BUTTON_DIAMETER)}
-            style={styles.saveButton}
-            accessibilityRole="button"
-            accessibilityLabel="Save this experience"
-          >
-            {/* Separate scrim layer so its opacity doesn't cascade to (fade) the icon rendered on top of it. */}
-            <View style={styles.saveButtonScrim} />
-            <Icon icon={Bookmark} size="sm" color={theme.colors.static.white} />
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={handleSavePress}
+              hitSlop={hitSlop(SAVE_BUTTON_DIAMETER)}
+              style={styles.saveButton}
+              accessibilityRole="button"
+              accessibilityLabel="Save this experience"
+            >
+              {/* Separate scrim layer so its opacity doesn't cascade to (fade) the icon rendered on top of it. */}
+              <View style={styles.saveButtonScrim} />
+              <Icon icon={Bookmark} size="sm" color={theme.colors.static.white} />
+            </Pressable>
+          </View>
 
-        <View style={styles.content}>
-          <Pressable
-            onPress={handlePlacePress}
-            style={styles.locationRow}
-            hitSlop={{ top: theme.spacing.xxs, bottom: theme.spacing.xxs, left: 0, right: 0 }}
-            accessibilityRole="link"
-            accessibilityLabel={`View ${location} on the map`}
-          >
-            <Icon icon={MapPin} size="xs" color={theme.colors.text.tertiary} />
-            <Caption numberOfLines={1} style={styles.locationText}>
-              {location}
-              {category ? `  ·  ${category.emoji} ${category.label}` : ''}
-            </Caption>
-          </Pressable>
+          <View style={styles.content}>
+            <Pressable
+              onPress={handlePlacePress}
+              style={styles.locationRow}
+              hitSlop={{ top: theme.spacing.xxs, bottom: theme.spacing.xxs, left: 0, right: 0 }}
+              accessibilityRole="link"
+              accessibilityLabel={`View ${location} on the map`}
+            >
+              <Icon icon={MapPin} size="xs" color={theme.colors.text.tertiary} />
+              <Caption numberOfLines={1} style={styles.locationText}>
+                {location}
+                {category ? `  ·  ${category.emoji} ${category.label}` : ''}
+              </Caption>
+            </Pressable>
 
-          <H5 numberOfLines={2} style={styles.title}>
-            {title}
-          </H5>
+            <H5 numberOfLines={2} style={styles.title}>
+              {title}
+            </H5>
 
-          <Body numberOfLines={3} color={theme.colors.text.secondary} style={styles.story}>
-            {storyPreview}
-          </Body>
+            <Body numberOfLines={3} color={theme.colors.text.secondary} style={styles.story}>
+              {storyPreview}
+            </Body>
 
-          <View style={styles.footer}>
-            <View style={styles.creatorRow}>
-              <Avatar
-                source={creator.avatarUrl ? { uri: creator.avatarUrl } : undefined}
-                name={creator.displayName}
-                size="sm"
-              />
-              <BodySmall numberOfLines={1} style={styles.creatorName}>
-                {creator.displayName}
-              </BodySmall>
-              {creator.isVerified ? (
-                <Icon
-                  icon={BadgeCheck}
-                  size="xs"
-                  color={theme.colors.brand.primary}
-                  accessibilityLabel="Verified creator"
+            <View style={styles.footer}>
+              <View style={styles.creatorRow}>
+                <Avatar
+                  source={creator.avatarUrl ? { uri: creator.avatarUrl } : undefined}
+                  name={creator.displayName}
+                  size="sm"
                 />
-              ) : null}
-            </View>
+                <BodySmall numberOfLines={1} style={styles.creatorName}>
+                  {creator.displayName}
+                </BodySmall>
+                {creator.isVerified ? (
+                  <Icon
+                    icon={BadgeCheck}
+                    size="xs"
+                    color={theme.colors.brand.primary}
+                    accessibilityLabel="Verified creator"
+                  />
+                ) : null}
+              </View>
 
-            <View style={styles.likeRow} accessibilityLabel={`${formatCount(likeCount)} likes`}>
-              <Icon icon={Heart} size="sm" color={theme.colors.text.tertiary} />
-              <Caption>{formatCount(likeCount)}</Caption>
+              <View style={styles.likeRow} accessibilityLabel={`${formatCount(likeCount)} likes`}>
+                <Icon icon={Heart} size="sm" color={theme.colors.text.tertiary} />
+                <Caption>{formatCount(likeCount)}</Caption>
+              </View>
             </View>
           </View>
         </View>
@@ -256,6 +258,35 @@ const SAVE_BUTTON_DIAMETER = 36;
 
 const styles = StyleSheet.create({
   card: {
+    // No overflow: 'hidden' here — iOS shadows are clipped by their own
+    // view's overflow, so the shadow must live on this (unclipped) Card
+    // and the rounded-corner image/content clipping must happen one
+    // level down, on `cardInner`. Without this split, iOS renders the
+    // shadow-less "flat" card the user flagged, while Android's
+    // elevation (a different rendering path) isn't clipped by
+    // overflow:'hidden' the same way and looked fine either way.
+    //
+    // Platform.select below is a second, separate fix: even unclipped,
+    // theme.shadows.medium's shadowOpacity/shadowRadius (tuned to match
+    // Android's elevation:3 numerically) still reads noticeably fainter
+    // on iOS, because iOS renders a soft Gaussian-blurred shadow while
+    // Android's elevation renders a tighter, more defined one — the same
+    // numbers just don't produce the same look across the two rendering
+    // engines. This bumps opacity/radius/offset specifically for this
+    // card (not the shared theme token, which other elevated surfaces
+    // still use as-is) so it reads with the same visual weight as
+    // Android's version.
+    ...Platform.select({
+      ios: {
+        shadowOpacity: 0.16,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+      },
+      default: {},
+    }),
+  },
+  cardInner: {
+    borderRadius: theme.radius.card,
     overflow: 'hidden',
   },
   coverWrapper: {

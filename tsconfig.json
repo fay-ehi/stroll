@@ -17,6 +17,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "moduleResolution": "bundler",
+    "moduleSuffixes": [".native", ""],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
