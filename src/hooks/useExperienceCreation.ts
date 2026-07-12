@@ -279,7 +279,7 @@ export interface UseExperienceCreationResult {
   error: StrollError | null;
 }
 
-export function useExperienceCreation(experienceId?: string): UseExperienceCreationResult {
+export function useExperienceCreation(experienceId?: string, draftId?: string): UseExperienceCreationResult {
   const { user } = useAuthState();
   const userId = user?.id;
   const isEditMode = !!experienceId;
@@ -313,22 +313,32 @@ export function useExperienceCreation(experienceId?: string): UseExperienceCreat
   const goBack         = useExperienceCreationStore((s) => s.goBack);
   const saveDraft      = useExperienceCreationStore((s) => s.saveDraft);
   const discardDraft   = useExperienceCreationStore((s) => s.discardDraft);
+  const resetSession   = useExperienceCreationStore((s) => s.reset);
   const clearError     = useExperienceCreationStore((s) => s.clearError);
 
   // ── Initial load / resume (create mode) ───────────────────────────────────
   // Invalidates the Drafts tile's query (useExperienceDrafts.ts) once
-  // this resolves — covers the "no draft existed, initDraft just created
-  // one" case, so a creator who taps Create for the first time sees the
-  // Profile's Drafts tile update the moment they back out, not only after
-  // the debounced auto-save's first write. A harmless extra refresh in
-  // the far more common "resumed an existing draft" case.
+  // this resolves — covers the "this draft didn't exist in storage yet,
+  // saveDraft just wrote it for the first time" case elsewhere in this
+  // file; this effect's own invalidate below only matters for the
+  // Resume-a-specific-draft path (draftId given), where nothing new was
+  // written but the list's "last edited" ordering may have shifted.
+  //
+  // Re-entry (e.g. this exact effect firing twice, or the screen
+  // component being reused by the navigator across two separate
+  // presentations of this route) is guarded inside the store's own
+  // `initDraft`, not here — see that action's doc in
+  // experienceCreationStore.ts for why a plain per-mount ref isn't
+  // enough: it would incorrectly no-op a genuine "Resume a different
+  // draft" call if the navigator happens to keep the previous screen
+  // instance alive instead of unmounting it.
 
   useEffect(() => {
     if (!userId || isEditMode) return;
-    void initDraft(userId).then(() => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.mine(userId) });
+    void initDraft(userId, draftId).then(() => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.list(userId) });
     });
-  }, [userId, isEditMode, initDraft, queryClient]);
+  }, [userId, isEditMode, draftId, initDraft, queryClient]);
 
   // ── Edit-session seed ──────────────────────────────────────────────────────
   // Reuses useExperienceDetail — the same fetch/cache Experience Details
@@ -632,9 +642,18 @@ export function useExperienceCreation(experienceId?: string): UseExperienceCreat
         showToast({ type: 'error', message: "We couldn't save your draft. Please try again." });
         return;
       }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.list(userId) });
     }
+    // Clears the in-memory session (the draft itself is already safely
+    // on disk as of the successful save above) so the NEXT time Create
+    // is opened it starts a genuinely new draft, rather than silently
+    // reopening this one — multiple drafts can coexist now, so "Create"
+    // reopening whatever was last active would make it impossible to
+    // ever start a second one. Resuming this specific draft again is
+    // still one tap away, from the Drafts tile/modal.
+    resetSession();
     router.back();
-  }, [userId, saveDraft]);
+  }, [userId, saveDraft, resetSession, queryClient]);
 
   const handleDiscard = useCallback(async () => {
     if (!userId || !draft) {
@@ -667,7 +686,7 @@ export function useExperienceCreation(experienceId?: string): UseExperienceCreat
       return;
     }
     trackExperienceDraftDiscarded({ draftId: draft.id, step: currentStep });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.mine(userId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.list(userId) });
     router.back();
   }, [userId, draft, currentStep, discardDraft, originalPhotoUrls, queryClient]);
 
@@ -916,7 +935,7 @@ export function usePublishExperience(): UsePublishExperienceResult {
 
       if (userId) {
         await discardDraft(userId);
-        void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.mine(userId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.drafts.list(userId) });
       }
 
       // Longer than the 3s default — this is the ONLY confirmation the

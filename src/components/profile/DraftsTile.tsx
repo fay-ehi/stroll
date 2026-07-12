@@ -3,20 +3,17 @@
  * src/components/profile/DraftsTile.tsx
  *
  * Sprint 3 Prompt 3 — the first cell of the Profile screen's creator
- * grid, always ("A Drafts tile as the first item... Always appear
- * first" — requirement #1). Opens the Drafts modal
- * (app/(modals)/drafts.tsx) on tap, which is where Resume/Delete
- * actually live (requirement #2) — this tile is a status indicator +
+ * grid, shown only once at least one draft exists (see this file's own
+ * `drafts.length === 0` guard below, and profile.tsx's gridData
+ * construction, which never even adds this cell to the list otherwise).
+ * Opens the Drafts modal (app/(modals)/drafts.tsx) on tap, which is
+ * where Resume/Delete actually live — this tile is a status indicator +
  * entry point, nothing more.
  *
- * There is at most one draft per user (see useExperienceDrafts.ts's
- * module doc) — this tile's "preview" is really just "does the one
- * draft that can exist, exist" rendered as a thumbnail. Its empty state
- * borrows the dashed-tile visual language the in-app photo grid's own
- * empty add-tile already establishes
- * (src/components/experience-creation/PhotoGridPicker.tsx) for the same
- * "nothing here yet" meaning, reused for consistency rather than
- * inventing a second empty-tile style.
+ * A user can have any number of drafts now (see useExperienceDrafts.ts's
+ * module doc) — this tile's "preview" is the most-recently-edited
+ * draft's first photo (drafts[0], already sorted newest-first by
+ * loadAllDrafts), with a count badge covering 2+.
  */
 
 import React from 'react';
@@ -30,28 +27,36 @@ import type { ExperienceDraft } from '@/types/experienceDraft';
 
 export interface DraftsTileProps {
   size: number;
-  draft: ExperienceDraft | null;
+  drafts: ExperienceDraft[];
   isLoading: boolean;
   onPress: () => void;
 }
 
-export function DraftsTile({ size, draft, isLoading, onPress }: DraftsTileProps) {
+export function DraftsTile({ size, drafts, isLoading, onPress }: DraftsTileProps) {
   if (isLoading) {
     return <Skeleton width={size} height={size} borderRadius={0} />;
   }
 
-  // A draft's first photo, if it has one yet — a brand-new draft
-  // (Photos step not reached, or left empty) has none, which is exactly
-  // as valid a "in-progress draft" as one with photos, so it falls back
-  // to the same FileEdit glyph either way.
-  const previewPhoto = draft?.photos[0]?.localUri ?? null;
+  // Nothing to show — profile.tsx already omits this cell from the grid
+  // in this case, but this guard keeps the component correct on its own
+  // too (e.g. if it's ever reused somewhere that doesn't pre-filter).
+  if (drafts.length === 0) {
+    return null;
+  }
+
+  const mostRecent = drafts[0]!;
+  // A brand-new draft (Photos step not reached, or left empty) has no
+  // photo yet — exactly as valid an in-progress draft as one with
+  // photos, so it falls back to the same FileEdit glyph either way.
+  const previewPhoto = mostRecent.photos[0]?.localUri ?? null;
+  const count = drafts.length;
 
   return (
     <Pressable
-      style={[styles.tile, { width: size, height: size }, !draft && styles.empty]}
+      style={[styles.tile, { width: size, height: size }]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={draft ? 'Drafts, 1 draft in progress' : 'Drafts, no drafts yet'}
+      accessibilityLabel={count === 1 ? 'Drafts, 1 draft in progress' : `Drafts, ${count} drafts in progress`}
     >
       {previewPhoto ? (
         <Image
@@ -65,7 +70,7 @@ export function DraftsTile({ size, draft, isLoading, onPress }: DraftsTileProps)
       )}
 
       <View style={styles.badge}>
-        <Badge label={draft ? 'Draft' : 'Drafts'} variant={draft ? 'primary' : 'neutral'} />
+        <Badge label={count === 1 ? 'Draft' : `${count} Drafts`} variant="primary" />
       </View>
     </Pressable>
   );
@@ -77,11 +82,6 @@ const styles = StyleSheet.create({
     justifyContent:  'center',
     backgroundColor: theme.colors.neutral.backgroundSecondary,
     overflow:        'hidden',
-  },
-  empty: {
-    borderWidth: theme.borders.width,
-    borderColor: theme.colors.neutral.border,
-    borderStyle: 'dashed',
   },
   fill: {
     width:  '100%',

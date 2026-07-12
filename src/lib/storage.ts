@@ -172,11 +172,20 @@ export const STORAGE_KEYS = {
   /**
    * Prefix for a user's in-progress Experience Draft (Sprint 3 Prompt 1).
    * Not a complete key on its own — experienceDraftService.ts appends
-   * `:${userId}` so drafts never leak across accounts on a shared device
-   * (the same reasoning `queryKeys.users.me()` gets invalidated on
-   * sign-out rather than trusted to naturally scope itself).
+   * `:${userId}:${draftId}` so drafts never leak across accounts on a
+   * shared device (the same reasoning `queryKeys.users.me()` gets
+   * invalidated on sign-out rather than trusted to naturally scope
+   * itself), and so more than one draft can exist per account.
    */
   experienceDraftPrefix: 'experienceDraft',
+  /**
+   * Prefix for a user's draft INDEX — a plain array of draft ids,
+   * separate from any individual draft record above. This is what makes
+   * "list all of this user's drafts" possible without a full-storage
+   * scan: experienceDraftService.ts reads this array, then reads each
+   * draft it names. Appends `:${userId}`.
+   */
+  experienceDraftIndexPrefix: 'experienceDraftIndex',
 } as const;
 
 export type StorageKey = keyof typeof STORAGE_KEYS;

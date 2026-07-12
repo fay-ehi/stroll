@@ -63,7 +63,7 @@ import {
   useRemoveAvatar,
 } from '@/hooks/useProfile';
 import { useUserGallery, useDeleteExperience } from '@/hooks/useUserGallery';
-import { useDraftQuery } from '@/hooks/useExperienceDrafts';
+import { useDraftsQuery } from '@/hooks/useExperienceDrafts';
 import { useFollowCounts } from '@/hooks/useFollows';
 import { useProfileStore, type AvatarUploadStage } from '@/stores/profileStore';
 import { PROFILE_LIMITS } from '@/constants/app';
@@ -87,13 +87,15 @@ const GRID_GAP = theme.spacing.xxs;
 const GALLERY_SKELETON_COUNT = 5;
 
 // ─── Grid Item (Sprint 3 Prompt 3) ─────────────────────────────────────────────
-// The creator grid mixes three different kinds of cell — the Drafts tile
-// (always first, requirement #1), loading placeholders, and published
-// experiences — so the FlatList's `data` is this discriminated union
-// rather than `ExperienceCardModel[]` directly.
+// The creator grid mixes four different kinds of cell — the Drafts tile
+// (first WHEN present — see gridData's own doc), its own loading
+// placeholder, other loading placeholders, and published experiences —
+// so the FlatList's `data` is this discriminated union rather than
+// `ExperienceCardModel[]` directly.
 
 type ProfileGridItem =
   | { type: 'drafts' }
+  | { type: 'drafts-skeleton' }
   | { type: 'skeleton'; key: string }
   | { type: 'experience'; experience: ExperienceCardModel };
 
@@ -108,10 +110,10 @@ export default function ProfileScreen() {
 
   const gallery = useUserGallery(profile?.id);
   const { followerCount, followingCount } = useFollowCounts(profile?.id);
-  // Named `experienceDraft` (not `draft`) to stay clear of the profile
+  // Named `experienceDrafts` (not `drafts`) to stay clear of the profile
   // EDIT draft below (`useProfileStore((s) => s.draft)`) — two entirely
   // different domains that happen to share the word "draft".
-  const { draft: experienceDraft, isLoading: isDraftLoading } = useDraftQuery(profile?.id);
+  const { drafts: experienceDrafts, isLoading: isDraftsLoading } = useDraftsQuery(profile?.id);
   const { deleteExperience } = useDeleteExperience(profile?.id);
 
   const isEditing     = useProfileStore((s) => s.isEditing);
@@ -148,14 +150,23 @@ export default function ProfileScreen() {
   };
 
   // ── Creator content grid (Sprint 3 Prompt 3) ──────────────────────────────
-  // The Drafts tile is always first (requirement #1), regardless of
-  // whether a draft currently exists — DraftsTile itself renders the
-  // empty/loading/has-a-draft states. While the published-experiences
-  // page is still loading, skeleton cells stand in for it — see
-  // GALLERY_SKELETON_COUNT's doc above.
+  // The Drafts tile is first WHEN PRESENT (requirement #1's "always
+  // appear first" now means "first among visible cells") — it's left out
+  // of `items` entirely once drafts have finished loading and there are
+  // none, rather than rendering as a permanent dashed empty-state cell.
+  // While that determination is still in flight, a skeleton cell stands
+  // in for it instead of the grid silently shifting by one the moment it
+  // resolves. While the published-experiences page is still loading,
+  // skeleton cells stand in for it too — see GALLERY_SKELETON_COUNT's
+  // doc above.
 
   const gridData: ProfileGridItem[] = useMemo(() => {
-    const items: ProfileGridItem[] = [{ type: 'drafts' }];
+    const items: ProfileGridItem[] = [];
+    if (isDraftsLoading) {
+      items.push({ type: 'drafts-skeleton' });
+    } else if (experienceDrafts.length > 0) {
+      items.push({ type: 'drafts' });
+    }
     if (gallery.isLoading) {
       for (let i = 0; i < GALLERY_SKELETON_COUNT; i++) {
         items.push({ type: 'skeleton', key: `skeleton-${i}` });
@@ -166,7 +177,7 @@ export default function ProfileScreen() {
       }
     }
     return items;
-  }, [gallery.isLoading, gallery.experiences]);
+  }, [isDraftsLoading, experienceDrafts.length, gallery.isLoading, gallery.experiences]);
 
   const handleOpenDrafts = useCallback(() => {
     router.push(MODAL_ROUTES.drafts as never);
@@ -193,13 +204,13 @@ export default function ProfileScreen() {
         return (
           <DraftsTile
             size={tileSize}
-            draft={experienceDraft}
-            isLoading={isDraftLoading}
+            drafts={experienceDrafts}
+            isLoading={false}
             onPress={handleOpenDrafts}
           />
         );
       }
-      if (item.type === 'skeleton') {
+      if (item.type === 'drafts-skeleton' || item.type === 'skeleton') {
         return <Skeleton width={tileSize} height={tileSize} borderRadius={0} />;
       }
       return (
@@ -212,11 +223,12 @@ export default function ProfileScreen() {
         />
       );
     },
-    [tileSize, experienceDraft, isDraftLoading, handleOpenDrafts, handleOpenExperience, handleEditExperience, handleDeleteExperience],
+    [tileSize, experienceDrafts, handleOpenDrafts, handleOpenExperience, handleEditExperience, handleDeleteExperience],
   );
 
   const gridKeyExtractor = useCallback((item: ProfileGridItem) => {
     if (item.type === 'drafts') return 'drafts-tile';
+    if (item.type === 'drafts-skeleton') return 'drafts-skeleton';
     if (item.type === 'skeleton') return item.key;
     return item.experience.id;
   }, []);

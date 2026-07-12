@@ -46,8 +46,7 @@
 import { create } from 'zustand';
 import {
   loadDraft,
-  createDraft,
-  updateDraft as persistDraftPatch,
+  saveDraft as persistDraft,
   deleteDraft,
 } from '@/services/experienceDraftService';
 import type { StrollError } from '@/lib/errors';
@@ -57,6 +56,7 @@ import type {
   ExperienceDraftPhoto,
   PhotoUploadStatus,
 } from '@/types/experienceDraft';
+import { createEmptyDraft } from '@/types/experienceDraft';
 import {
   CREATION_STEPS,
   creationStepIndex,
@@ -66,6 +66,8 @@ import { trackExperienceCreationStarted } from '@/lib/analytics';
 import type { PlaceCategoryId } from '@/constants/places';
 import { EXPERIENCE_LIMITS } from '@/constants/app';
 import type { AmountSpent, VisitType, GoodForTag, VibeTag } from '@/constants/app';
+import { generateLocalId } from '@/utils';
+import { makeError } from '@/lib/errors';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -73,7 +75,7 @@ export type CreationStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 /**
  * Sprint 3 Prompt 3 — 'create' is everything this store already did
- * (a local AsyncStorage-backed draft, one per user — see
+ * (an AsyncStorage-backed draft the user can freely swap between — see
  * experienceDraftService.ts). 'edit' is new: the wizard is reused
  * unmodified (requirement #3: "Do not build a separate editing UI"), but
  * the in-memory `draft` it operates on is seeded from an already-published
@@ -111,8 +113,18 @@ export interface ExperienceCreationState {
   error:  StrollError | null;
 
   // ── Actions ──────────────────────────────────────────────────────────────────
-  /** Loads the user's in-progress draft, or creates one if none exists (Resume / Automatic draft creation). Sets mode: 'create'. */
-  initDraft: (userId: string) => Promise<void>;
+  /**
+   * Starts or resumes a creation session and sets mode: 'create'.
+   *   - With no `draftId`: always starts a brand-new, in-memory draft.
+   *     Multiple drafts can coexist now, so "Create" no longer
+   *     auto-resumes "the" previous in-progress draft the way a
+   *     single-draft model did — nothing is written to storage until
+   *     this draft is actually saved (see `saveDraft` below).
+   *   - With a `draftId`: loads that specific, already-saved draft from
+   *     storage — this is how the Drafts tile/modal's "Resume" action
+   *     re-enters the wizard on a particular draft.
+   */
+  initDraft: (userId: string, draftId?: string) => Promise<void>;
   /**
    * Seeds an in-memory-only 'edit' session from an already-published
    * Experience — no AsyncStorage read/write, unlike `initDraft` above (see
@@ -183,35 +195,50 @@ const INITIAL_STATE: Pick<
 export const useExperienceCreationStore = create<ExperienceCreationState>((set, get) => ({
   ...INITIAL_STATE,
 
-  initDraft: async (userId) => {
-    // Already loaded for this user this session — re-entering the modal
-    // shouldn't refetch/flash a loading state over an in-memory draft
-    // that's already current.
-    const current = get();
-    if (current.status === 'ready' && current.mode === 'create' && current.draft?.userId === userId) return;
+  initDraft: async (userId, draftId) => {
+    // Resuming a draft that's already the one loaded — a no-op, so
+    // reopening the same in-progress session doesn't flash a loading
+    // state over content that's already current. Deliberately does NOT
+    // guard the "start a brand-new draft" path (draftId undefined) at
+    // all — every call with no draftId must actually create a fresh
+    // draft, even if this is the same screen component instance the
+    // navigator happens to be reusing from an earlier Create session
+    // (React Navigation does not always fully unmount/remount a screen
+    // between separate presentations of the same route) — see this
+    // action's own interface doc above.
+    if (draftId) {
+      const current = get();
+      if (current.status === 'ready' && current.mode === 'create' && current.draft?.id === draftId) {
+        return;
+      }
+    }
 
     set({ status: 'loading', error: null, mode: 'create', sourceExperienceId: null, originalPhotoUrls: [] });
 
-    const existingResult = await loadDraft(userId);
-    if (!existingResult.ok) {
-      set({ status: 'error', error: existingResult.error });
+    if (draftId) {
+      const result = await loadDraft(userId, draftId);
+      if (!result.ok) {
+        set({ status: 'error', error: result.error });
+        return;
+      }
+      if (!result.data) {
+        set({
+          status: 'error',
+          error: makeError('NOT_FOUND', "This draft couldn't be found — it may have already been deleted."),
+        });
+        return;
+      }
+      set({ status: 'ready', draft: result.data, dirty: false });
       return;
     }
 
-    if (existingResult.data) {
-      set({ status: 'ready', draft: existingResult.data, dirty: false });
-      return;
-    }
-
-    // No draft on disk — this is a fresh "Create Experience" entry.
-    const createdResult = await createDraft(userId);
-    if (!createdResult.ok) {
-      set({ status: 'error', error: createdResult.error });
-      return;
-    }
-
-    trackExperienceCreationStarted({ draftId: createdResult.data.id });
-    set({ status: 'ready', draft: createdResult.data, dirty: false });
+    // No specific draft requested — always start a brand-new, in-memory
+    // draft (see this action's doc above). Nothing is persisted yet;
+    // `saveDraft` below writes it to storage the first time it's
+    // actually saved.
+    const draft = createEmptyDraft(generateLocalId('draft'), userId);
+    trackExperienceCreationStarted({ draftId: draft.id });
+    set({ status: 'ready', draft, dirty: false });
   },
 
   initDraftForEdit: ({ experienceId, draft, originalPhotoUrls }) => {
@@ -387,19 +414,11 @@ export const useExperienceCreationStore = create<ExperienceCreationState>((set, 
 
     set({ saving: true, error: null });
     try {
-      const result = await persistDraftPatch(userId, {
-        title:          draft.title,
-        categoryId:     draft.categoryId,
-        currentStep:    draft.currentStep,
-        place:          draft.place,
-        photos:         draft.photos,
-        story:          draft.story,
-        amountSpent:    draft.amountSpent,
-        visitType:      draft.visitType,
-        wouldRecommend: draft.wouldRecommend,
-        goodForTags:    draft.goodForTags,
-        vibeTags:       draft.vibeTags,
-      });
+      const updated: ExperienceDraft = { ...draft, updatedAt: new Date().toISOString() };
+      // Upsert — see experienceDraftService.ts's `saveDraft` doc. This is
+      // the exact same call whether this is this draft's very first save
+      // (nothing in storage for it yet) or its hundredth.
+      const result = await persistDraft(userId, updated);
 
       if (!result.ok) {
         set({ error: result.error });
@@ -414,23 +433,29 @@ export const useExperienceCreationStore = create<ExperienceCreationState>((set, 
   },
 
   discardDraft: async (userId) => {
-    // Edit sessions never wrote to the local draft slot in the first
+    // Edit sessions never wrote to local draft storage in the first
     // place (see CreationMode's doc) — "discard" just means dropping the
-    // in-memory changes, never a call to deleteDraft(), which would wipe
-    // this user's actual in-progress Create draft if one happens to
-    // exist. That resetting to INITIAL_STATE below already accomplishes,
-    // for both modes — same reason `reset()` exists at all.
-    if (get().mode === 'edit') {
+    // in-memory changes, never a call to deleteDraft(). That resetting to
+    // INITIAL_STATE below already accomplishes, for both modes — same
+    // reason `reset()` exists at all.
+    const { draft, mode } = get();
+    if (mode === 'edit') {
       set({ ...INITIAL_STATE });
       return true;
     }
 
     set({ saving: true, error: null });
     try {
-      const result = await deleteDraft(userId);
-      if (!result.ok) {
-        set({ error: result.error });
-        return false;
+      // Safe even if this draft was never actually saved to storage
+      // (e.g. discarding a brand-new draft the user never edited) —
+      // deleteDraft is a harmless no-op for an id storage doesn't
+      // recognize (see its own doc in experienceDraftService.ts).
+      if (draft) {
+        const result = await deleteDraft(userId, draft.id);
+        if (!result.ok) {
+          set({ error: result.error });
+          return false;
+        }
       }
       set({ ...INITIAL_STATE });
       return true;

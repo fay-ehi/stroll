@@ -10,62 +10,122 @@
  * modal (same navigational tier as follows/[userId].tsx, place-search,
  * comments, etc.), reachable only via MODAL_ROUTES.drafts from the
  * Profile screen's DraftsTile, never a persistent nav destination of its
- * own (no tab, no header button anywhere else links here). That's the
- * distinction from the explicitly-forbidden separate "My Experiences"
- * screen: this is reached the same way Comments or Place Search are.
+ * own (no tab, no header button anywhere else links here).
  *
- * ── One draft, not a list ──
- * See useExperienceDrafts.ts's module doc for the full reasoning. This
- * screen is written to degrade correctly across the two states that
- * therefore exist — an empty state, and a single draft card — rather
- * than a FlatList expecting to one day render more.
+ * ── Any number of drafts ──
+ * A user can have any number of drafts now (see
+ * experienceDraftService.ts's module doc for the storage-layout change
+ * behind it) — this screen is a scrollable list of draft cards, each
+ * with its own Resume (→ MODAL_ROUTES.resumeDraft, which seeds the
+ * wizard from that specific draft) and Delete, plus the same empty
+ * state as before when the list is empty.
  */
 
 import React, { useCallback } from 'react';
-import { View, Pressable, StyleSheet, Alert } from 'react-native';
+import { View, Pressable, StyleSheet, Alert, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { X, FileEdit, Trash2 } from 'lucide-react-native';
 
 import { theme } from '@/theme';
-import { ScreenContainer, H4, Body, Caption, Card, Button, Icon, Spinner, EmptyState } from '@/components/ui';
+import { ScreenContainer, H4, Body, Caption, Card, Icon, Spinner, EmptyState } from '@/components/ui';
 import { useAuthState } from '@/hooks/useAuth';
-import { useDraftQuery, useDeleteDraftMutation } from '@/hooks/useExperienceDrafts';
+import { useDraftsQuery, useDeleteDraftMutation } from '@/hooks/useExperienceDrafts';
 import { MODAL_ROUTES } from '@/constants/routes';
 import { timeAgo } from '@/utils';
+import type { ExperienceDraft } from '@/types/experienceDraft';
 
 export default function DraftsModal() {
   const { user } = useAuthState();
   const userId = user?.id;
 
-  const { draft, isLoading } = useDraftQuery(userId);
-  const { deleteDraft, isDeleting } = useDeleteDraftMutation(userId);
+  const { drafts, isLoading } = useDraftsQuery(userId);
+  const { deleteDraft, deletingDraftId } = useDeleteDraftMutation(userId);
 
-  const handleResume = useCallback(() => {
-    // Swap this modal for the creation wizard rather than stacking a
-    // second modal on top — mirrors create-experience.tsx's own
-    // back-then-push shape for a "leave this screen for that one" move.
-    router.back();
-    router.push(MODAL_ROUTES.createExperience as never);
+  const handleResume = useCallback((draftId: string) => {
+    // A single atomic navigation, not back() immediately followed by
+    // push() — dispatching two separate navigation actions in the same
+    // tick on the same stack is a known-fragile pattern (the second can
+    // race the first's in-flight state update and silently not apply).
+    // replace() swaps this modal for the creation wizard in one action —
+    // same visual result ("leave Drafts for Create"), but reliable.
+    router.replace(MODAL_ROUTES.resumeDraft(draftId) as never);
   }, []);
 
-  const handleDelete = useCallback(() => {
-    Alert.alert(
-      'Delete this draft?',
-      "This can't be undone. Any photos you've added will be removed too.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => { void deleteDraft(); },
-        },
-      ],
-    );
-  }, [deleteDraft]);
+  const handleDelete = useCallback(
+    (draft: ExperienceDraft) => {
+      Alert.alert(
+        'Delete this draft?',
+        "This can't be undone. Any photos you've added will be removed too.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => { void deleteDraft(draft.id); },
+          },
+        ],
+      );
+    },
+    [deleteDraft],
+  );
 
-  const previewPhoto = draft?.photos[0]?.localUri ?? null;
-  const captionPreview = draft?.story.trim() || null;
+  const renderDraft = useCallback(
+    ({ item: draft }: { item: ExperienceDraft }) => {
+      const previewPhoto = draft.photos[0]?.localUri ?? null;
+      const captionPreview = draft.story.trim() || null;
+      const isDeleting = deletingDraftId === draft.id;
+
+      return (
+        <Card variant="outlined" padding={0} style={styles.draftCard}>
+          <Pressable
+            style={styles.draftRow}
+            onPress={() => handleResume(draft.id)}
+            disabled={isDeleting}
+            accessibilityRole="button"
+            accessibilityLabel={`Resume draft: ${captionPreview ?? 'Untitled draft'}`}
+          >
+            {previewPhoto ? (
+              <Image
+                source={{ uri: previewPhoto }}
+                style={styles.draftThumb}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+              />
+            ) : (
+              <View style={[styles.draftThumb, styles.draftThumbFallback]}>
+                <Icon icon={FileEdit} size="md" color={theme.colors.text.tertiary} />
+              </View>
+            )}
+
+            <View style={styles.draftText}>
+              <Body numberOfLines={2}>
+                {captionPreview ?? 'Untitled draft'}
+              </Body>
+              <Caption color={theme.colors.text.tertiary}>
+                Edited {timeAgo(draft.updatedAt)}
+              </Caption>
+            </View>
+
+            {isDeleting ? (
+              <Spinner size="small" accessibilityLabel="Deleting draft" />
+            ) : (
+              <Pressable
+                onPress={() => handleDelete(draft)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Delete draft"
+                style={styles.deleteButton}
+              >
+                <Icon icon={Trash2} size="sm" color={theme.colors.semantic.error} />
+              </Pressable>
+            )}
+          </Pressable>
+        </Card>
+      );
+    },
+    [deletingDraftId, handleResume, handleDelete],
+  );
 
   return (
     <ScreenContainer scroll={false} padded={false}>
@@ -85,7 +145,7 @@ export default function DraftsModal() {
         <View style={styles.centered}>
           <Spinner accessibilityLabel="Loading drafts" />
         </View>
-      ) : !draft ? (
+      ) : drafts.length === 0 ? (
         <View style={styles.centered}>
           <EmptyState
             icon={FileEdit}
@@ -94,53 +154,13 @@ export default function DraftsModal() {
           />
         </View>
       ) : (
-        <View style={styles.content}>
-          <Card variant="outlined" padding={0} style={styles.draftCard}>
-            <View style={styles.draftRow}>
-              {previewPhoto ? (
-                <Image
-                  source={{ uri: previewPhoto }}
-                  style={styles.draftThumb}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                />
-              ) : (
-                <View style={[styles.draftThumb, styles.draftThumbFallback]}>
-                  <Icon icon={FileEdit} size="md" color={theme.colors.text.tertiary} />
-                </View>
-              )}
-
-              <View style={styles.draftText}>
-                <Body numberOfLines={2}>
-                  {captionPreview ?? 'Untitled draft'}
-                </Body>
-                <Caption color={theme.colors.text.tertiary}>
-                  Edited {timeAgo(draft.updatedAt)}
-                </Caption>
-              </View>
-
-              <Pressable
-                onPress={handleDelete}
-                disabled={isDeleting}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Delete draft"
-                style={styles.deleteButton}
-              >
-                <Icon icon={Trash2} size="sm" color={theme.colors.semantic.error} />
-              </Pressable>
-            </View>
-          </Card>
-
-          <Button
-            label="Resume Draft"
-            variant="primary"
-            fullWidth
-            loading={isDeleting}
-            onPress={handleResume}
-            style={styles.resumeButton}
-          />
-        </View>
+        <FlatList
+          data={drafts}
+          keyExtractor={(item) => item.id}
+          renderItem={renderDraft}
+          contentContainerStyle={styles.list}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
       )}
     </ScreenContainer>
   );
@@ -158,9 +178,13 @@ const styles = StyleSheet.create({
     flex:            1,
     justifyContent:  'center',
   },
-  content: {
+  list: {
     paddingHorizontal: theme.layout.screenPaddingHorizontal,
     paddingTop:         theme.spacing.sm,
+    paddingBottom:      theme.spacing.lg,
+  },
+  separator: {
+    height: theme.spacing.sm,
   },
   draftCard: {
     overflow: 'hidden',
@@ -187,8 +211,5 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: theme.spacing.xxs,
-  },
-  resumeButton: {
-    marginTop: theme.spacing.lg,
   },
 });

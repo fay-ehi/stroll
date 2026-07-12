@@ -62,11 +62,15 @@ import type { CreationStep } from '@/constants/experienceCreation';
 
 export default function CreateExperienceScreen() {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);
-  const { experienceId: experienceIdParam } = useLocalSearchParams<{ experienceId?: string }>();
+  const { experienceId: experienceIdParam, draftId: draftIdParam } = useLocalSearchParams<{
+    experienceId?: string;
+    draftId?: string;
+  }>();
   // useLocalSearchParams can hand back an array if a param repeats in the
   // URL — collapses that to the plain string | undefined the rest of this
   // screen (and useExperienceCreation) expects.
   const experienceId = Array.isArray(experienceIdParam) ? experienceIdParam[0] : experienceIdParam;
+  const draftId = Array.isArray(draftIdParam) ? draftIdParam[0] : draftIdParam;
 
   // (modals) is a sibling of (app), not nested inside it, so it doesn't
   // inherit (app)/_layout.tsx's route guard — mirrors that guard's own
@@ -76,7 +80,7 @@ export default function CreateExperienceScreen() {
     return <Redirect href={ROUTES.auth.welcome as never} />;
   }
 
-  return <CreateExperienceWizard experienceId={experienceId} />;
+  return <CreateExperienceWizard experienceId={experienceId} draftId={draftId} />;
 }
 
 // ─── Step Copy ────────────────────────────────────────────────────────────────
@@ -94,7 +98,7 @@ function getStepCopy(step: Exclude<CreationStep, 'photos'>, isEditMode: boolean)
     : { title: 'Preview', subtitle: 'Here\u2019s how your experience will look once published.' };
 }
 
-function CreateExperienceWizard({ experienceId }: { experienceId?: string }) {
+function CreateExperienceWizard({ experienceId, draftId }: { experienceId?: string; draftId?: string }) {
   const navigation = useNavigation();
   const [attempted, setAttempted] = useState(false);
   const { profile } = useProfile();
@@ -134,7 +138,7 @@ function CreateExperienceWizard({ experienceId }: { experienceId?: string }) {
     handleBack,
     handleSaveAndExit,
     handleDiscard,
-  } = useExperienceCreation(experienceId);
+  } = useExperienceCreation(experienceId, draftId);
 
   const { startPublish, isPublishing } = usePublishExperience();
 
@@ -217,7 +221,7 @@ function CreateExperienceWizard({ experienceId }: { experienceId?: string }) {
       [
         { text: 'Keep Editing', style: 'cancel' },
         { text: 'Discard', style: 'destructive', onPress: () => { void handleDiscard(); } },
-        { text: 'Save & Exit', onPress: () => { void handleSaveAndExit(); } },
+        { text: 'Save as Draft', onPress: () => { void handleSaveAndExit(); } },
       ]
     );
   }, [isEditMode, handleDiscard, handleSaveAndExit, commitAndLeave]);

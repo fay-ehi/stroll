@@ -107,11 +107,13 @@ export const queryKeys = {
   // Query purely for consistent loading-state/caching/invalidation ergonomics
   // with everything else in this app — same rationale as `personalization`
   // below, not because it's a network request. Powers the Profile screen's
-  // Drafts tile (existence + count) and the Drafts modal (the draft itself).
-  // One draft per user at a time (see experienceDraftService.ts's module
-  // doc), so `mine` resolves to `ExperienceDraft | null`, not a list.
+  // Drafts tile (existence + count) and the Drafts modal (the list itself).
+  // A user can have any number of drafts now — `list` resolves to
+  // `ExperienceDraft[]`. There's no `one` key here: the creation store
+  // reads a single draft straight from experienceDraftService (see
+  // experienceCreationStore.ts's `initDraft`), not through TanStack Query.
   drafts: {
-    mine: (userId: string) => ['drafts', 'mine', userId] as const,
+    list: (userId: string) => ['drafts', 'list', userId] as const,
   },
 
   // ── Personalization (Sprint 2 Prompt 3) ─────────────────────────────────────

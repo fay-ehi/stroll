@@ -81,6 +81,13 @@ export const MODAL_ROUTES = {
    * file would just be a second entry point into identical UI.
    */
   editExperience:   (experienceId: string) => `/(modals)/create-experience?experienceId=${experienceId}` as const,
+  /**
+   * Resume a specific, already-saved draft — same reasoning as
+   * `editExperience` above (same screen component, a query param rather
+   * than a distinct route file), now that a user can have more than one
+   * draft. Opened only from the Drafts tile/modal's "Resume" action.
+   */
+  resumeDraft:      (draftId: string) => `/(modals)/create-experience?draftId=${draftId}` as const,
   createCollection: '/(modals)/create-collection',
   addToCollection:  '/(modals)/add-to-collection',
   comments:         (experienceId: string) => `/(modals)/comments/${experienceId}` as const,

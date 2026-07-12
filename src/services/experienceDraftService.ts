@@ -18,16 +18,38 @@
  * later is a change to this file's internals only. No caller (the
  * creation store, the wizard hook) would need to change.
  *
- * One draft per user at a time (requirement #3's "Automatic draft
- * creation" / "Resume draft" describe a single in-progress draft, not a
- * list) — storage is keyed `experienceDraft:${userId}`, not by draft id.
+ * ── Multiple drafts per user ──
+ * A user can now have any number of in-progress drafts at once (this
+ * used to be capped at one — see git history for the earlier
+ * `experienceDraft:${userId}` single-slot design). Storage is now two
+ * layers:
+ *   - Each draft is its own record, keyed `experienceDraft:${userId}:${draftId}`.
+ *   - A per-user INDEX — a plain `string[]` of draft ids, keyed
+ *     `experienceDraftIndex:${userId}` — is what makes "list all of this
+ *     user's drafts" possible without scanning every key in storage.
+ * `loadAllDrafts` self-heals the index if it ever points at a draft
+ * record that no longer exists (e.g. a previous delete that wrote the
+ * draft removal but was interrupted before the index update landed) —
+ * see its own doc below.
+ *
+ * ── A draft is only written to storage once it's actually saved ──
+ * There is no `createDraft` here anymore. The creation store
+ * (experienceCreationStore.ts) builds a brand-new draft's initial value
+ * entirely in memory (`createEmptyDraft`, types/experienceDraft.ts) the
+ * moment "Create" is opened, and this service is never touched until
+ * that draft is actually saved for the first time — either by the
+ * debounced auto-save (once the user has made a real change) or by an
+ * explicit "Save as Draft" exit. This is deliberate: a user who opens
+ * Create and immediately backs out without changing anything should
+ * never see a blank "draft" appear in their Drafts tile — see
+ * `saveDraft` below, which upserts (creates on first save, overwrites on
+ * every save after) rather than requiring a prior `createDraft` call.
  */
 
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 import { normalizeError, makeError, type StrollError } from '@/lib/errors';
-import { createEmptyDraft, type ExperienceDraft, type ExperienceDraftPatch } from '@/types/experienceDraft';
+import type { ExperienceDraft } from '@/types/experienceDraft';
 import { CREATION_STEPS, FIRST_CREATION_STEP } from '@/constants/experienceCreation';
-import { generateLocalId } from '@/utils';
 
 // ─── Result Type ───────────────────────────────────────────────────────────────
 // Same shape as ExperiencesResult / ProfileResult / PlacesResult.
@@ -41,8 +63,15 @@ function fail(err: unknown): ExperienceDraftResult<never> {
   return { ok: false, error: normalizeError(err) };
 }
 
-function draftKey(userId: string): string {
-  return `${STORAGE_KEYS.experienceDraftPrefix}:${userId}`;
+function draftKey(userId: string, draftId: string): string {
+  return `${STORAGE_KEYS.experienceDraftPrefix}:${userId}:${draftId}`;
+}
+function indexKey(userId: string): string {
+  return `${STORAGE_KEYS.experienceDraftIndexPrefix}:${userId}`;
+}
+
+async function readIndex(userId: string): Promise<string[]> {
+  return (await storage.get<string[]>(indexKey(userId))) ?? [];
 }
 
 // ─── Shape migration ────────────────────────────────────────────────────────────
@@ -52,14 +81,13 @@ function draftKey(userId: string): string {
 // just trusts the stored JSON matches the current type, so those fields
 // come back `undefined` rather than the empty defaults the rest of the
 // app assumes (this is what crashed PhotosStep: `draft.photos.length` on
-// an `undefined` `photos`). Every read path (`loadDraft`, and
-// `updateDraft`'s read of the existing record before patching) runs the
-// stored value through this first, so an old, partially-shaped draft is
-// backfilled with the same defaults `createEmptyDraft` would have used
-// had it been created today — a one-time, silent, non-destructive
-// upgrade, not a new error state the UI needs to handle. Whatever the
-// user had already filled in (title/category/currentStep/place/photos/
-// story/metadata) is preserved untouched.
+// an `undefined` `photos`). Every read path (`loadDraft`, `loadAllDrafts`)
+// runs the stored value through this first, so an old, partially-shaped
+// draft is backfilled with the same defaults `createEmptyDraft` would
+// have used had it been created today — a one-time, silent,
+// non-destructive upgrade, not a new error state the UI needs to handle.
+// Whatever the user had already filled in (title/category/currentStep/
+// place/photos/story/metadata) is preserved untouched.
 //
 // The Photos → Compose → Preview redesign also retired the old six-step
 // wizard's step ids ('basics', 'category', 'place', 'story' — see
@@ -87,74 +115,115 @@ function migrateDraft(raw: ExperienceDraft): ExperienceDraft {
   };
 }
 
-// ─── Load ──────────────────────────────────────────────────────────────────────
-// Returns `data: null` (not an error) when the user simply has no draft in
-// progress — that's the expected steady state, not a failure.
+// ─── Load (single) ──────────────────────────────────────────────────────────────
+// Returns `data: null` (not an error) when the given draft id doesn't
+// exist — a legitimate case now (a deep link or stale UI state pointing
+// at an already-deleted draft), not just "no draft in progress".
 
-export async function loadDraft(userId: string): Promise<ExperienceDraftResult<ExperienceDraft | null>> {
+export async function loadDraft(
+  userId: string,
+  draftId: string,
+): Promise<ExperienceDraftResult<ExperienceDraft | null>> {
   try {
-    const draft = await storage.get<ExperienceDraft>(draftKey(userId));
+    const draft = await storage.get<ExperienceDraft>(draftKey(userId, draftId));
     return ok(draft ? migrateDraft(draft) : null);
   } catch (err) {
     return fail(err);
   }
 }
 
-// ─── Create ────────────────────────────────────────────────────────────────────
-// Persists an empty draft immediately (rather than waiting for the first
-// edit) so "Resume after app restart" is correct even if the user leaves
-// before typing anything — the draft, and the fact that creation was
-// started, already exist in storage.
-
-export async function createDraft(userId: string): Promise<ExperienceDraftResult<ExperienceDraft>> {
+// ─── Load (all) ─────────────────────────────────────────────────────────────────
+// Backs the Drafts tile + Drafts modal. Reads the index, then reads every
+// draft it names — self-healing the index (rewriting it without any id
+// whose record has gone missing) rather than surfacing a gap as an error,
+// since a stale index entry is a storage inconsistency the user can't do
+// anything about anyway. Sorted most-recently-edited first, so the
+// Drafts tile's single-photo preview and the modal's top-of-list entry
+// are always the one the user was most recently working on.
+export async function loadAllDrafts(userId: string): Promise<ExperienceDraftResult<ExperienceDraft[]>> {
   try {
-    const draft = createEmptyDraft(generateLocalId('draft'), userId);
-    const wrote = await storage.set(draftKey(userId), draft);
-    if (!wrote) {
-      return fail(makeError('UNKNOWN', 'Failed to write new draft to local storage.'));
+    const ids = await readIndex(userId);
+    if (ids.length === 0) return ok([]);
+
+    const drafts: ExperienceDraft[] = [];
+    let staleIndex = false;
+
+    for (const id of ids) {
+      const raw = await storage.get<ExperienceDraft>(draftKey(userId, id));
+      if (raw) {
+        drafts.push(migrateDraft(raw));
+      } else {
+        staleIndex = true;
+      }
     }
+
+    if (staleIndex) {
+      await storage.set(indexKey(userId), drafts.map((d) => d.id));
+    }
+
+    drafts.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return ok(drafts);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Save (upsert) ────────────────────────────────────────────────────────────
+// Writes the given draft as-is (the creation store already holds the
+// merged, up-to-date `ExperienceDraft` in memory — this is a plain write,
+// not a partial-patch merge the way the old single-slot `updateDraft` was).
+// Adds the draft's id to the index if it isn't already there — a no-op
+// on every save after the first for the same draft. This single function
+// covers what used to be two separate `createDraft`/`updateDraft` calls:
+// the very first save for a brand-new draft and every save after it are
+// the exact same operation now (write the record, ensure the index has
+// the id), so there's no "does this draft already exist in storage yet"
+// branch for callers to get wrong.
+export async function saveDraft(
+  userId: string,
+  draft: ExperienceDraft,
+): Promise<ExperienceDraftResult<ExperienceDraft>> {
+  try {
+    const wrote = await storage.set(draftKey(userId, draft.id), draft);
+    if (!wrote) {
+      return fail(makeError('UNKNOWN', 'Failed to save draft to local storage.'));
+    }
+
+    const ids = await readIndex(userId);
+    if (!ids.includes(draft.id)) {
+      const indexWrote = await storage.set(indexKey(userId), [draft.id, ...ids]);
+      if (!indexWrote) {
+        return fail(makeError('UNKNOWN', 'Failed to save draft to local storage.'));
+      }
+    }
+
     return ok(draft);
   } catch (err) {
     return fail(err);
   }
 }
 
-// ─── Update ────────────────────────────────────────────────────────────────────
-
-export async function updateDraft(
-  userId: string,
-  patch: ExperienceDraftPatch
-): Promise<ExperienceDraftResult<ExperienceDraft>> {
-  try {
-    const existing = await storage.get<ExperienceDraft>(draftKey(userId));
-    if (!existing) {
-      return fail(makeError('NOT_FOUND', `No draft in progress for user ${userId}.`));
-    }
-
-    const updated: ExperienceDraft = {
-      ...migrateDraft(existing),
-      ...patch,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const wrote = await storage.set(draftKey(userId), updated);
-    if (!wrote) {
-      return fail(makeError('UNKNOWN', 'Failed to save draft to local storage.'));
-    }
-    return ok(updated);
-  } catch (err) {
-    return fail(err);
-  }
-}
-
 // ─── Delete ────────────────────────────────────────────────────────────────────
+// Safe to call even for a draft that was never actually written to
+// storage (e.g. discarding a brand-new draft that was never saved) —
+// `storage.remove` on a key that doesn't exist is a harmless no-op, and
+// the id simply won't be found in the index either.
 
-export async function deleteDraft(userId: string): Promise<ExperienceDraftResult<null>> {
+export async function deleteDraft(userId: string, draftId: string): Promise<ExperienceDraftResult<null>> {
   try {
-    const removed = await storage.remove(draftKey(userId));
+    const removed = await storage.remove(draftKey(userId, draftId));
     if (!removed) {
       return fail(makeError('UNKNOWN', 'Failed to discard draft from local storage.'));
     }
+
+    const ids = await readIndex(userId);
+    if (ids.includes(draftId)) {
+      const indexWrote = await storage.set(indexKey(userId), ids.filter((id) => id !== draftId));
+      if (!indexWrote) {
+        return fail(makeError('UNKNOWN', 'Failed to discard draft from local storage.'));
+      }
+    }
+
     return ok(null);
   } catch (err) {
     return fail(err);
