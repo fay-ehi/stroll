@@ -30,3 +30,9 @@ export { ForYouFeed, type ForYouFeedProps } from './ForYouFeed';
 export { FollowingFeed, type FollowingFeedProps } from './FollowingFeed';
 export { CollectionCard, type CollectionCardProps } from './CollectionCard';
 export { CollectionCarousel, type CollectionCarouselProps } from './CollectionCarousel';
+export { NearbyExperienceCard, type NearbyExperienceCardProps } from './NearbyExperienceCard';
+export { LocationPermissionCard, type LocationPermissionCardProps } from './LocationPermissionCard';
+export {
+  CitySwitchSuggestionBanner,
+  type CitySwitchSuggestionBannerProps,
+} from './CitySwitchSuggestionBanner';

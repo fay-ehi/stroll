@@ -88,12 +88,14 @@ export interface UsePlacesListResult {
 function usePlacesListQuery(
   queryKey: readonly unknown[],
   queryFn: () => Promise<PlaceModel[]>,
-  staleTime: number
+  staleTime: number,
+  enabled = true
 ): UsePlacesListResult {
   const query = useQuery<PlaceModel[], StrollError>({
     queryKey,
     queryFn,
     staleTime,
+    enabled,
     retry: isRetryableStrollError,
   });
 
@@ -133,6 +135,7 @@ const DEFAULT_RADIUS_KM = 10;
  */
 export function useNearbyPlaces(params: NearbyPlacesParams): UsePlacesListResult {
   const radiusKm = params.radiusKm ?? DEFAULT_RADIUS_KM;
+  const enabled = params.enabled ?? true;
 
   return usePlacesListQuery(
     queryKeys.places.nearby(params.latitude, params.longitude, radiusKm, params.category),
@@ -146,7 +149,8 @@ export function useNearbyPlaces(params: NearbyPlacesParams): UsePlacesListResult
       if (!result.ok) throw result.error;
       return result.data.map((row) => toPlaceModel(row, row.distance_km));
     },
-    STALE_TIMES.nearby
+    STALE_TIMES.nearby,
+    enabled
   );
 }
 

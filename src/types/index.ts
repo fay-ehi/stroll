@@ -77,3 +77,8 @@ export {
   type ExperienceDraftPatch,
   type DraftValidationErrors,
 } from './experienceDraft';
+export {
+  type LocationPermissionStatus,
+  type Coordinates,
+  type NearbyExperienceModel,
+} from './location';

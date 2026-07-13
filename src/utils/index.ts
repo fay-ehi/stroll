@@ -152,6 +152,25 @@ export function formatCount(count: number): string {
   return `${(count / 1_000_000).toFixed(1)}M`;
 }
 
+// ─── Distance Utilities ─────────────────────────────────────────────────────────
+
+/**
+ * Formats a distance in kilometers for display on a nearby card.
+ * 0.85 → "850m" | 2 → "2km" | 2.4 → "2km"
+ *
+ * Sub-kilometer distances show in meters for a more readable "you're
+ * basically there" figure; kilometer-scale distances round to the
+ * nearest whole km, matching the brief's own examples exactly rather
+ * than adding decimal precision nobody asked for.
+ */
+export function formatDistance(km: number): string {
+  if (km < 1) {
+    const meters = Math.max(1, Math.round(km * 1000));
+    return `${meters}m`;
+  }
+  return `${Math.round(km)}km`;
+}
+
 // ─── Validation Utilities ──────────────────────────────────────────────────────
 
 export const VALIDATION = {

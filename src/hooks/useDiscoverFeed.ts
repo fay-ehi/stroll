@@ -62,6 +62,8 @@ import {
   type DiscoverFeedParams,
 } from '@/types/experience';
 import { isPlaceCategoryId, type PlaceCategoryId } from '@/constants/places';
+import { LOCATION_CONFIG } from '@/constants/location';
+import type { NearbyExperienceModel } from '@/types/location';
 
 // ─── Stale Times ───────────────────────────────────────────────────────────────
 
@@ -427,4 +429,105 @@ export function useDiscoverFeed(params?: UseDiscoverFeedParams): UseDiscoverFeed
   }, [refreshQueries]);
 
   return { feed, continueExploring, sort, setSort, refresh, isRefreshing };
+}
+
+// ─── Nearby Card Interleaving (Sprint 4 Prompt 2) ───────────────────────────────
+// "Extend useDiscoverFeed.ts / the feed-rendering logic to splice a nearby
+// card in every N items ... as additive data, not a parallel
+// fetch-and-prepend." Nearby cards themselves come from useNearbyExperiences
+// (a session-scoped pool, refreshed on meaningful movement — NOT paginated),
+// so they're spliced into the already-paginated `feed.experiences` array at
+// render-composition time here, rather than being fetched as part of the
+// feed query itself. This keeps pagination, pull-to-refresh, and offline
+// caching (all of which already work today) completely untouched — a user
+// with no permission, no city match, or no nearby experiences gets an
+// `items` array that's identical, item for item, to `feed.experiences`.
+
+export type DiscoverFeedItem =
+  | { kind: 'experience'; key: string; experience: ExperienceCardModel }
+  | { kind: 'nearby'; key: string; nearby: NearbyExperienceModel }
+  /** The in-feed permission ask (Requirement 1) rides the same cadence slots nearby cards use — it's what occupies the FIRST such slot when permission is still undetermined, so the OS prompt is only ever reachable from a contextual, already-scrolled-to card, never at launch. */
+  | { kind: 'location_permission_ask'; key: string };
+
+export interface BuildDiscoverFeedItemsParams {
+  experiences: ExperienceCardModel[];
+  nearbyPool: NearbyExperienceModel[];
+  /** Permission granted AND the reverse-geocoded city matches the active city filter (Requirement 3) — the ONLY condition under which nearby cards actually render. */
+  showNearbyCards: boolean;
+  /** Permission still undetermined AND the soft-ask hasn't been shown yet this session (locationStore.softAskShownThisSession). */
+  showPermissionAsk: boolean;
+  cadence?: number;
+}
+
+export interface DiscoverFeedItemsResult {
+  items: DiscoverFeedItem[];
+  /** True the moment a permission-ask item is actually included in `items` — the caller uses this to mark it shown in locationStore, exactly once, exactly when it truly entered the feed (not merely "was eligible to"). */
+  didInsertPermissionAsk: boolean;
+}
+
+export function buildDiscoverFeedItems(params: BuildDiscoverFeedItemsParams): DiscoverFeedItemsResult {
+  const {
+    experiences,
+    nearbyPool,
+    showNearbyCards,
+    showPermissionAsk,
+    cadence = LOCATION_CONFIG.NEARBY_CARD_CADENCE,
+  } = params;
+
+  const items: DiscoverFeedItem[] = [];
+  let nearbyPoolIndex = 0;
+  let didInsertPermissionAsk = false;
+
+  experiences.forEach((experience, index) => {
+    items.push({ kind: 'experience', key: experience.id, experience });
+
+    // A "slot" occurs every `cadence` experience cards (1-indexed: the
+    // 9th, 18th, 27th ... card). Nothing extra is inserted between slots
+    // — this is "additive data" at fixed intervals, not a re-shuffle.
+    const isSlot = (index + 1) % cadence === 0;
+    if (!isSlot) return;
+
+    // The FIRST eligible slot gets the permission ask instead of a
+    // nearby card, if one is due — never both, and never more than once
+    // per call (the `!didInsertPermissionAsk` guard), which is what
+    // keeps a later page's cadence slots from re-inserting it after
+    // pagination grows `experiences`.
+    if (!didInsertPermissionAsk && showPermissionAsk) {
+      items.push({ kind: 'location_permission_ask', key: `location-permission-ask-${index}` });
+      didInsertPermissionAsk = true;
+      return;
+    }
+
+    if (showNearbyCards && nearbyPoolIndex < nearbyPool.length) {
+      const nearby = nearbyPool[nearbyPoolIndex];
+      if (nearby) {
+        items.push({ kind: 'nearby', key: `nearby-${nearby.experience.id}-${index}`, nearby });
+        nearbyPoolIndex += 1;
+      }
+    }
+    // Pool exhausted, permission denied, or city mismatched: the slot
+    // simply contributes nothing extra — indistinguishable from a feed
+    // with this feature turned off entirely.
+  });
+
+  return { items, didInsertPermissionAsk };
+}
+
+/**
+ * Memoized wrapper around buildDiscoverFeedItems — the pure computation
+ * above never mutates state (no store writes inside the memo), so it's
+ * safe to recompute on every relevant dependency change. The caller
+ * (app/(app)/(tabs)/discover.tsx) is responsible for reacting to
+ * `didInsertPermissionAsk` via its own `useEffect`, e.g.:
+ *
+ *   useEffect(() => {
+ *     if (didInsertPermissionAsk) markSoftAskShown();
+ *   }, [didInsertPermissionAsk]);
+ */
+export function useDiscoverFeedItems(params: BuildDiscoverFeedItemsParams): DiscoverFeedItemsResult {
+  return useMemo(
+    () => buildDiscoverFeedItems(params),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [params.experiences, params.nearbyPool, params.showNearbyCards, params.showPermissionAsk, params.cadence]
+  );
 }

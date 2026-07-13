@@ -27,10 +27,16 @@ import type { LucideIcon } from 'lucide-react-native';
 
 import { theme } from '@/theme';
 import { EmptyState, Spinner, Caption, Chip, ScreenContainer, OfflineBanner } from '@/components/ui';
-import { ExperienceCard, ExperienceFeedSkeleton } from '@/components/discover';
-import type { ExperienceCardModel, DiscoverSortMode } from '@/types/experience';
+import {
+  ExperienceCard,
+  ExperienceFeedSkeleton,
+  NearbyExperienceCard,
+  LocationPermissionCard,
+  CitySwitchSuggestionBanner,
+} from '@/components/discover';
+import type { DiscoverSortMode } from '@/types/experience';
 import type { StrollError } from '@/lib/errors';
-import type { UseDiscoverFeedResult } from '@/hooks/useDiscoverFeed';
+import type { UseDiscoverFeedResult, DiscoverFeedItem } from '@/hooks/useDiscoverFeed';
 
 interface ForYouEmptyState {
   icon: LucideIcon;
@@ -91,6 +97,20 @@ export interface ForYouFeedProps {
   city: string | undefined;
   listHeader: React.ReactElement;
   loadingHeader: React.ReactElement;
+  /**
+   * Sprint 4 Prompt 2 — feed.experiences with nearby cards / the
+   * permission ask spliced in (see useDiscoverFeed.ts's
+   * buildDiscoverFeedItems). Identical to feed.experiences, item for
+   * item, whenever the feature has nothing to add — see that function's
+   * own doc.
+   */
+  items: DiscoverFeedItem[];
+  onEnableLocation: () => void;
+  onDismissLocationAsk: () => void;
+  /** The active mismatch to show as a banner, or null to hide it entirely. */
+  citySwitchSuggestion: { city: string } | null;
+  onSwitchCity: () => void;
+  onDismissCitySwitch: () => void;
 }
 
 export function ForYouFeed({
@@ -102,6 +122,12 @@ export function ForYouFeed({
   city,
   listHeader,
   loadingHeader,
+  items,
+  onEnableLocation,
+  onDismissLocationAsk,
+  citySwitchSuggestion,
+  onSwitchCity,
+  onDismissCitySwitch,
 }: ForYouFeedProps) {
   const handleEndReached = useCallback(() => {
     if (feed.hasNextPage && !feed.isFetchingNextPage && !feed.isError) {
@@ -110,15 +136,34 @@ export function ForYouFeed({
   }, [feed.hasNextPage, feed.isFetchingNextPage, feed.isError, feed.fetchNextPage]);
 
   const renderItem = useCallback(
-    ({ item }: { item: ExperienceCardModel }) => (
-      <View style={styles.cardWrapper}>
-        <ExperienceCard experience={item} />
-      </View>
-    ),
-    [],
+    ({ item }: { item: DiscoverFeedItem }) => {
+      switch (item.kind) {
+        case 'experience':
+          return (
+            <View style={styles.cardWrapper}>
+              <ExperienceCard experience={item.experience} />
+            </View>
+          );
+        case 'nearby':
+          return (
+            <View style={styles.cardWrapper}>
+              <NearbyExperienceCard nearby={item.nearby} />
+            </View>
+          );
+        case 'location_permission_ask':
+          return (
+            <View style={styles.cardWrapper}>
+              <LocationPermissionCard onEnable={onEnableLocation} onDismiss={onDismissLocationAsk} />
+            </View>
+          );
+        default:
+          return null;
+      }
+    },
+    [onEnableLocation, onDismissLocationAsk],
   );
 
-  const keyExtractor = useCallback((item: ExperienceCardModel) => item.id, []);
+  const keyExtractor = useCallback((item: DiscoverFeedItem) => item.key, []);
 
   const listFooter = (() => {
     if (feed.experiences.length === 0) return null;
@@ -217,8 +262,15 @@ export function ForYouFeed({
   return (
     <ScreenContainer scroll={false} padded={false} edges={["bottom"]}>
       <OfflineBanner />
+      {citySwitchSuggestion && (
+        <CitySwitchSuggestionBanner
+          city={citySwitchSuggestion.city}
+          onSwitch={onSwitchCity}
+          onDismiss={onDismissCitySwitch}
+        />
+      )}
       <FlatList
-        data={feed.experiences}
+        data={items}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         ListHeaderComponent={listHeader}

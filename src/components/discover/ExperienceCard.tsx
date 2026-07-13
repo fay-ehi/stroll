@@ -113,7 +113,12 @@ const CoverImage = React.memo(function CoverImage({
 // ─── Experience Card ──────────────────────────────────────────────────────────────
 
 export type ExperienceCardVariant = 'standard' | 'featured';
-export type ExperienceCardSource = 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail';
+export type ExperienceCardSource =
+  | 'discover_feed'
+  | 'related'
+  | 'continue_exploring'
+  | 'place_detail'
+  | 'nearby_surfaced';
 
 export interface ExperienceCardProps {
   experience: ExperienceCardModel;

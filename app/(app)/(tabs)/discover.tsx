@@ -74,9 +74,12 @@ import {
   FollowingFeed,
   type DiscoverFeedTab,
 } from '@/components/discover';
-import { useDiscoverFeed } from '@/hooks/useDiscoverFeed';
-import { useProfile } from '@/hooks/useProfile';
+import { useDiscoverFeed, useDiscoverFeedItems } from '@/hooks/useDiscoverFeed';
+import { useProfile, useUpdateProfile } from '@/hooks/useProfile';
+import { useLocation } from '@/hooks/useLocation';
+import { useNearbyExperiences } from '@/hooks/useNearbyExperiences';
 import { useNetworkStatus } from '@/hooks';
+import { useLocationStore } from '@/stores/locationStore';
 import { showToast } from '@/stores/toastStore';
 import type { DiscoverSortMode } from '@/types/experience';
 
@@ -113,6 +116,86 @@ export default function DiscoverScreen() {
     previousFeedError.current = feed.error;
   }, [feed.isError, feed.error, feed.experiences.length]);
 
+  // ─── Sprint 4 Prompt 2 — Location-Aware Nearby Experience Surfacing ─────────
+  // See useLocation.ts / useNearbyExperiences.ts / useDiscoverFeed.ts's
+  // buildDiscoverFeedItems for what each of these actually does — this
+  // screen only composes them, per the app's Layer Order (UI → Hooks →
+  // Stores → Repositories).
+  const location = useLocation();
+  const { nearbyPool } = useNearbyExperiences({ coords: location.coords });
+
+  const softAskShownThisSession = useLocationStore((s) => s.softAskShownThisSession);
+  const markSoftAskShown = useLocationStore((s) => s.markSoftAskShown);
+  const citySwitchRecord = useLocationStore((s) => s.citySwitchSuggestion);
+  const presentCitySwitchSuggestion = useLocationStore((s) => s.presentCitySwitchSuggestion);
+  const dismissCitySwitchSuggestionInStore = useLocationStore((s) => s.dismissCitySwitchSuggestion);
+  const clearCitySwitchSuggestion = useLocationStore((s) => s.clearCitySwitchSuggestion);
+
+  const updateProfileMutation = useUpdateProfile();
+
+  // Requirement 3 — nearby cards only render when the reverse-geocoded
+  // city equals the active filter; a mismatch (both valid, known cities)
+  // is what the Requirement 4 suggestion banner is for instead.
+  const cityMatches = Boolean(city && location.resolvedCity && location.resolvedCity === city);
+  const cityMismatch = Boolean(city && location.resolvedCity && location.resolvedCity !== city);
+
+  const showNearbyCards = location.permissionStatus === 'granted' && cityMatches;
+  const showPermissionAsk = location.permissionStatus === 'undetermined' && !softAskShownThisSession;
+
+  const { items: forYouItems, didInsertPermissionAsk } = useDiscoverFeedItems({
+    experiences: feed.experiences,
+    nearbyPool,
+    showNearbyCards,
+    showPermissionAsk,
+  });
+
+  // Marks the soft-ask "used up" for this session the moment it actually
+  // entered the feed — not merely when it became eligible to — so a
+  // later page fetch (which grows `feed.experiences` and therefore adds
+  // more cadence slots) never inserts a second one.
+  useEffect(() => {
+    if (didInsertPermissionAsk) markSoftAskShown();
+  }, [didInsertPermissionAsk, markSoftAskShown]);
+
+  const handleEnableLocation = () => {
+    markSoftAskShown();
+    void location.requestPermission();
+  };
+
+  const handleDismissLocationAsk = () => {
+    markSoftAskShown();
+  };
+
+  // Requirement 4 — present/clear the suggestion as the match state
+  // changes. presentCitySwitchSuggestion() itself is a no-op if the
+  // detected city is already the one being tracked this session, which
+  // is what keeps a persistent single mismatch from re-nagging every
+  // time this effect re-runs (e.g. after a background location update).
+  useEffect(() => {
+    if (cityMismatch && location.resolvedCity) {
+      presentCitySwitchSuggestion(location.resolvedCity);
+    } else {
+      clearCitySwitchSuggestion();
+    }
+  }, [cityMismatch, location.resolvedCity, presentCitySwitchSuggestion, clearCitySwitchSuggestion]);
+
+  const citySwitchSuggestion =
+    citySwitchRecord && !citySwitchRecord.dismissed && cityMismatch
+      ? { city: citySwitchRecord.city }
+      : null;
+
+  const handleSwitchCity = () => {
+    if (!citySwitchRecord) return;
+    // Reuses the exact same city-change path Profile/onboarding use —
+    // no special-casing for this feature (Requirement 4).
+    updateProfileMutation.mutate({ city: citySwitchRecord.city });
+    clearCitySwitchSuggestion();
+  };
+
+  const handleDismissCitySwitch = () => {
+    dismissCitySwitchSuggestionInStore();
+  };
+
   // For You panel's own list header — Continue Exploring was removed
   // entirely per product direction; nothing panel-specific remains here
   // today. Kept as its own memoized element (rather than folded away)
@@ -145,6 +228,12 @@ export default function DiscoverScreen() {
             city={city}
             listHeader={forYouListHeader}
             loadingHeader={emptyListHeader}
+            items={forYouItems}
+            onEnableLocation={handleEnableLocation}
+            onDismissLocationAsk={handleDismissLocationAsk}
+            citySwitchSuggestion={citySwitchSuggestion}
+            onSwitchCity={handleSwitchCity}
+            onDismissCitySwitch={handleDismissCitySwitch}
           />
         }
         second={<FollowingFeed listHeader={emptyListHeader} />}

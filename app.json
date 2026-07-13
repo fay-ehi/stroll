@@ -19,7 +19,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Stroll uses your camera to add photos to your experiences.",
         "NSPhotoLibraryUsageDescription": "Stroll accesses your photo library so you can add images to your experiences.",
-        "NSLocationWhenInUseUsageDescription": "Stroll uses your location to help you discover places nearby."
+        "NSLocationWhenInUseUsageDescription": "Stroll uses your location to show you Experiences nearby and how far away they are."
       }
     },
     "android": {
@@ -51,6 +51,12 @@
           "photosPermission": "Stroll accesses your photo library so you can add images to your experiences.",
           "savePhotosPermission": "Stroll accesses your photo library so you can add images to your experiences.",
           "isAccessMediaLocationEnabled": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Stroll uses your location to show you Experiences nearby and how far away they are."
         }
       ]
     ],

@@ -63,6 +63,18 @@ export const queryKeys = {
       ['experiences', 'recommended', category, city] as const,
     /** Experiences attached to a place. */
     byPlace: (placeId: string) => ['experiences', 'by-place', placeId] as const,
+    /**
+     * Sprint 4 Prompt 2 (Nearby Surfacing) — the single latest Experience
+     * for a place, used to pick the one Experience a nearby card surfaces.
+     * Deliberately its own key, NOT `byPlace()` above — that key backs
+     * `usePlaceExperiences()`'s `useInfiniteQuery` (Place Detail's
+     * "Community Experiences" list), a different cache shape
+     * (`{pages, pageParams}`) than the plain single-page result this
+     * reuses `fetchExperiencesByPlace()` for. Sharing one key across an
+     * infinite query and a regular query would corrupt whichever one
+     * reads the cache second.
+     */
+    byPlaceLatest: (placeId: string) => ['experiences', 'by-place-latest', placeId] as const,
     /** Experiences authored by a specific user. */
     byUser: (userId: string) => ['experiences', 'by-user', userId] as const,
     /** Experiences in a specific collection. */

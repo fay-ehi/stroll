@@ -141,6 +141,14 @@ export interface NearbyPlacesParams {
   radiusKm?:  number;
   category?:  PlaceCategoryId;
   limit?:     number;
+  /**
+   * Sprint 4 Prompt 2 (Nearby Surfacing) — lets a caller that doesn't have
+   * real coordinates yet (device location still resolving, permission not
+   * granted) defer the query entirely rather than passing placeholder
+   * 0,0 coordinates through, which would fire a real (and meaningless)
+   * RPC call. Defaults to `true` so every existing caller is unaffected.
+   */
+  enabled?:   boolean;
 }
 
 export interface PlacesByCityParams {

@@ -35,12 +35,13 @@ export type AnalyticsEventName =
   | 'experience_edit_started'
   | 'experience_updated'
   | 'experience_deleted'
-  | 'place_viewed';
+  | 'place_viewed'
+  | 'nearby_experience_surfaced';
 
 export interface AnalyticsEventProperties {
   experience_opened: {
     experienceId: string;
-    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail';
+    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail' | 'nearby_surfaced';
   };
   /** Not fired anywhere in Discover as of this sprint — category selection lives in Search now (see CategoriesRow's doc). Defined and ready for Search to call. */
   category_selected: { categoryId: string };
@@ -62,6 +63,8 @@ export interface AnalyticsEventProperties {
   experience_deleted: { experienceId: string };
   /** Fired once per Place Detail screen load, when the place resolves (Sprint 4 Prompt 1) — mirrors useExperienceDetail's recordExperienceView keying, so a background refetch of the same place doesn't re-fire this. */
   place_viewed: { placeId: string };
+  /** Impression event — fired when a NearbyExperienceCard mounts into the Discover feed (Sprint 4 Prompt 2). The tap-through counterpart is trackExperienceOpened with source: 'nearby_surfaced', not a separate event. */
+  nearby_experience_surfaced: { experienceId: string; placeId: string; distanceKm: number };
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
@@ -141,4 +144,10 @@ export function trackExperienceDeleted(
   properties: AnalyticsEventProperties['experience_deleted'],
 ): void {
   trackEvent('experience_deleted', properties);
+}
+
+export function trackNearbyExperienceSurfaced(
+  properties: AnalyticsEventProperties['nearby_experience_surfaced'],
+): void {
+  trackEvent('nearby_experience_surfaced', properties);
 }

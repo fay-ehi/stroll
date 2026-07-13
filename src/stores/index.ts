@@ -40,3 +40,7 @@ export {
   type CreationStatus,
   type ExperienceCreationState,
 } from './experienceCreationStore';
+
+export {
+  useLocationStore,
+} from './locationStore';
