@@ -10,21 +10,21 @@
  * This is the ONLY file that talks to the `places` table or the
  * `nearby_places` RPC directly. Screens/hooks go through `usePlaces.ts`.
  *
- * Sprint 3 Prompt 2 adds `searchPlaces()` — the first use of
- * `queryKeys.places.search`, reserved since the Sprint 0 scaffold. This
- * is deliberately a search over places already indexed in THIS table,
- * not the real PRD §8.7 Place Search (an external Google Places/Mapbox
- * lookup) — that's still Sprint 4 scope; see app/(modals)/place-search.tsx's
- * own doc comment. Framing it this way (rather than quietly expanding
- * this sprint into a provider integration) keeps this an interim,
- * swappable implementation: PlaceStep.tsx (the caller) only depends on
- * this function's signature, so replacing the body with a real provider
- * call in Sprint 4 doesn't touch the wizard at all.
+ * Sprint 3 Prompt 2 added `searchPlaces()` as a deliberately interim,
+ * in-table search — see its own doc comment below. Sprint 4 Prompt 3
+ * (Canonical Place Resolution via Google Places) is the real provider
+ * integration that comment anticipated: `resolveGooglePlace()`, at the
+ * bottom of this file, is what PlaceStep.tsx now calls after a Google
+ * Autocomplete selection. `searchPlaces()` itself is untouched and no
+ * longer used by the creation wizard, but stays as general in-table
+ * search infra for any future place-browsing feature (e.g. Discover's
+ * own place search) that doesn't need provider resolution.
  */
 
 import { supabase } from '@/lib/supabase';
 import { normalizeError, type StrollError } from '@/lib/errors';
 import { PAGINATION } from '@/constants/app';
+import { fetchPlaceDetails, type GooglePlaceAutocompleteSuggestion } from '@/services/googlePlacesService';
 import type { PlaceRow } from '@/types/place';
 import type { PlaceCategoryId } from '@/constants/places';
 
@@ -217,4 +217,136 @@ export async function searchPlaces(params: SearchPlacesParams): Promise<PlacesRe
   } catch (err) {
     return fail(err);
   }
+}
+
+// ─── Find Place By Provider Id ───────────────────────────────────────────────────
+// Sprint 4 Prompt 3 — the dedup check `resolveGooglePlace()` runs before
+// ever inserting a new row: two Experiences tagging the same real-world
+// place (same Google Place ID) must resolve to the same `places` row.
+
+export async function findPlaceByProviderId(
+  providerPlaceId: string
+): Promise<PlacesResult<PlaceRow | null>> {
+  try {
+    const { data, error } = await supabase
+      .from('places')
+      .select('*')
+      .eq('provider_place_id', providerPlaceId)
+      .maybeSingle();
+
+    if (error) return fail(error);
+    return ok(data);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Create Place ───────────────────────────────────────────────────────────────
+// Sprint 4 Prompt 3 — the only place a new `places` row is ever written
+// from client code. `slug` is deliberately omitted from the insert (left
+// to whatever DB-side default/trigger already populates it for every
+// existing row — see types/database.ts's `Insert.slug?` being optional),
+// same as every other server-assigned column.
+
+export interface CreatePlaceParams {
+  name: string;
+  city: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  category: PlaceCategoryId;
+  providerPlaceId: string;
+}
+
+export async function createPlace(params: CreatePlaceParams): Promise<PlacesResult<PlaceRow>> {
+  try {
+    const { data, error } = await supabase
+      .from('places')
+      .insert({
+        name: params.name,
+        city: params.city,
+        address: params.address,
+        latitude: params.latitude,
+        longitude: params.longitude,
+        category: params.category,
+        source: 'google_places',
+        provider_place_id: params.providerPlaceId,
+      })
+      .select('*')
+      .single();
+
+    if (error) return fail(error);
+    return ok(data);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Resolve Google Place (Sprint 4 Prompt 3) ────────────────────────────────────
+// The heart of this prompt: turns a selected Google Autocomplete
+// suggestion into one canonical `places` row, never a fresh row per
+// Experience. Owns the full round trip — the terminating Place Details
+// (New) call (via googlePlacesService, this file's only provider
+// dependency), the existing-row check, and the insert — so PlaceStep.tsx
+// calls one function and gets back a real, persisted PlaceRow either way.
+//
+// Race handling: two users resolving the same real-world place at
+// nearly the same moment can both pass the `findPlaceByProviderId` check
+// before either has inserted. If the `places` table has (or gets) a
+// unique constraint on `provider_place_id` — the correct schema for this
+// prompt's whole premise — the loser's insert fails with Postgres' unique
+// violation code ('23505'); rather than surfacing that as an error, this
+// re-queries and returns the winner's row, so the caller only ever sees
+// success with one canonical Place, regardless of which request lost
+// the race.
+
+const POSTGRES_UNIQUE_VIOLATION = '23505';
+
+export interface ResolveGooglePlaceParams {
+  suggestion: GooglePlaceAutocompleteSuggestion;
+  sessionToken: string;
+  /** The draft's currently-selected category, if any — the required `places.category` column has no equivalent on Google's Essentials-tier response, so this is the best available signal. Falls back to 'attractions', matching toPlaceModel's own fallback for unrecognized categories. */
+  categoryId: PlaceCategoryId | null;
+}
+
+export async function resolveGooglePlace(
+  params: ResolveGooglePlaceParams
+): Promise<PlacesResult<PlaceRow>> {
+  const detailsResult = await fetchPlaceDetails({
+    placeId: params.suggestion.placeId,
+    sessionToken: params.sessionToken,
+  });
+  if (!detailsResult.ok) return { ok: false, error: detailsResult.error };
+  const details = detailsResult.data;
+
+  const existing = await findPlaceByProviderId(details.providerPlaceId);
+  if (!existing.ok) return existing;
+  if (existing.data) return ok(existing.data);
+
+  const created = await createPlace({
+    name: params.suggestion.name,
+    city: details.city,
+    address: details.formattedAddress,
+    latitude: details.latitude,
+    longitude: details.longitude,
+    category: params.categoryId ?? 'attractions',
+    providerPlaceId: details.providerPlaceId,
+  });
+
+  if (!created.ok && isUniqueViolation(created.error)) {
+    const winner = await findPlaceByProviderId(details.providerPlaceId);
+    if (winner.ok && winner.data) return ok(winner.data);
+  }
+
+  return created;
+}
+
+function isUniqueViolation(error: StrollError): boolean {
+  const original = error.originalError;
+  return (
+    typeof original === 'object' &&
+    original !== null &&
+    'code' in original &&
+    (original as { code?: unknown }).code === POSTGRES_UNIQUE_VIOLATION
+  );
 }

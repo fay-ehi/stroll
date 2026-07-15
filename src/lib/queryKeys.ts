@@ -112,6 +112,15 @@ export const queryKeys = {
         radiusKm,
         category ?? 'all',
       ] as const,
+    /**
+     * Sprint 4 Prompt 3 (Canonical Place Resolution) — Google Autocomplete
+     * suggestions for the creation wizard's Place step. Keyed by session
+     * token first: a fresh token means a fresh search session (see
+     * usePlaces.ts's `useGooglePlaceAutocomplete`), so there's no risk of
+     * serving a previous session's cached suggestions under a new one.
+     */
+    autocomplete: (sessionToken: string, input: string) =>
+      ['places', 'autocomplete', sessionToken, input] as const,
   },
 
   // ── Experience Drafts (Sprint 3 Prompt 3) ───────────────────────────────────

@@ -16,6 +16,10 @@
  *   usePlacesByCategory() — places of a category, optionally filtered by city.
  *   usePlace()            — a single place by id.
  *   useRefreshPlaces()    — force-refresh every active places query at once.
+ *   usePlaceSearch()      — in-table search (superseded for the creation
+ *                           wizard by useGooglePlaceSearch, Sprint 4 Prompt 3).
+ *   useGooglePlaceSearch() — Google Autocomplete + resolve-to-Place, backing
+ *                           the Experience creation wizard's Place step.
  *
  * Caching: each hook has its own query key (src/lib/queryKeys.ts) and a
  * staleTime tuned to how often that data actually changes — see
@@ -27,7 +31,8 @@ import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '@/lib/queryKeys';
-import { makeError, type StrollError } from '@/lib/errors';
+import { makeError, normalizeError, logError, type StrollError } from '@/lib/errors';
+import { showToast } from '@/stores/toastStore';
 import { useDebounce } from '@/hooks';
 import { TIMEOUTS } from '@/constants/app';
 import type { PlaceCategoryId } from '@/constants/places';
@@ -38,7 +43,13 @@ import {
   fetchPlacesByCategory,
   fetchPlaceById,
   searchPlaces,
+  resolveGooglePlace,
 } from '@/services/placesService';
+import {
+  fetchAutocompleteSuggestions,
+  createAutocompleteSessionToken,
+  type GooglePlaceAutocompleteSuggestion,
+} from '@/services/googlePlacesService';
 import {
   toPlaceModel,
   validateCoordinates,
@@ -68,6 +79,8 @@ const STALE_TIMES = {
   // `byCity`/`byCategory` avoids serving a visibly-stale list back if
   // they clear and retype the same query within the same session.
   search:      1 * 60 * 1000,
+  /** Short-lived by design — Google Autocomplete results are already keyed per session token (see queryKeys.places.autocomplete), so this only guards against an identical keystroke firing twice in quick succession, not long-term freshness. */
+  autocomplete: 30 * 1000,
 } as const;
 
 function isRetryableStrollError(failureCount: number, error: StrollError): boolean {
@@ -188,6 +201,10 @@ export function usePlacesByCategory(params: PlacesByCategoryParams): UsePlacesLi
 // documents: debounce the *value*, not a manually-managed timer, so the
 // query key naturally settles once typing pauses instead of firing a
 // network request per keystroke.
+//
+// No longer used by PlaceStep.tsx as of Sprint 4 Prompt 3 (see
+// useGooglePlaceSearch below) — kept as general in-table search infra;
+// see placesService.ts's module doc for the full reasoning.
 
 export interface UsePlaceSearchParams {
   query:     string;
@@ -208,6 +225,93 @@ export function usePlaceSearch(params: UsePlaceSearchParams): UsePlacesListResul
     },
     STALE_TIMES.search
   );
+}
+
+// ─── useGooglePlaceSearch (Sprint 4 Prompt 3 — Canonical Place Resolution) ──────
+// Backs PlaceStep.tsx's Google Autocomplete search + selection. Bundled
+// as one hook rather than split into a search hook and a separate
+// resolve hook (the pattern every other hook in this file follows)
+// because the two are genuinely coupled by session-token lifecycle: the
+// same token must be reused across every keystroke's Autocomplete call
+// and passed once more to the terminating resolve call, then rotated —
+// splitting that across two hooks would leak session-token bookkeeping
+// into PlaceStep.tsx itself, exactly the kind of thing a hook exists to
+// own instead. See googlePlacesService.ts's module doc for why the
+// token must be reused, then never reused again after resolve.
+//
+// `resolve` is a plain async callback, not a `useMutation` — same
+// reasoning useExperienceDrafts.ts's `useDeleteDraftMutation` already
+// documents: there's no dependent list query here to invalidate on
+// success, just a single in-flight action with a busy flag.
+
+export interface UseGooglePlaceSearchResult {
+  suggestions:      GooglePlaceAutocompleteSuggestion[];
+  isLoading:        boolean;
+  isError:          boolean;
+  refetch:          () => void;
+  /** Resolves a selected suggestion to a real, persisted PlaceModel — creating or reusing a `places` row as needed. Returns null (and shows an error toast) on failure. */
+  resolve:          (suggestion: GooglePlaceAutocompleteSuggestion, categoryId: PlaceCategoryId | null) => Promise<PlaceModel | null>;
+  isResolving:      boolean;
+  /** The specific suggestion currently being resolved, if any — lets the UI show a busy state on just that row. */
+  resolvingPlaceId: string | null;
+}
+
+export function useGooglePlaceSearch(query: string): UseGooglePlaceSearchResult {
+  const [sessionToken, setSessionToken] = useState(() => createAutocompleteSessionToken());
+  const [resolvingPlaceId, setResolvingPlaceId] = useState<string | null>(null);
+  const debouncedQuery = useDebounce(query, TIMEOUTS.SEARCH_DEBOUNCE_MS);
+
+  const listQuery = useQuery<GooglePlaceAutocompleteSuggestion[], StrollError>({
+    queryKey: queryKeys.places.autocomplete(sessionToken, debouncedQuery),
+    queryFn: async () => {
+      const result = await fetchAutocompleteSuggestions({ input: debouncedQuery, sessionToken });
+      if (!result.ok) throw result.error;
+      return result.data;
+    },
+    enabled:   debouncedQuery.trim().length > 0,
+    staleTime: STALE_TIMES.autocomplete,
+    retry:     isRetryableStrollError,
+  });
+
+  const resolve = useCallback(
+    async (
+      suggestion: GooglePlaceAutocompleteSuggestion,
+      categoryId: PlaceCategoryId | null
+    ): Promise<PlaceModel | null> => {
+      setResolvingPlaceId(suggestion.placeId);
+      try {
+        const result = await resolveGooglePlace({ suggestion, sessionToken, categoryId });
+
+        // Every terminating Place Details (New) call — success or
+        // failure — concludes the Autocomplete session per Google's
+        // billing model. Mint a fresh token unconditionally so a retry,
+        // or the next time this step is opened, never reuses one that's
+        // already been spent (see googlePlacesService.ts's module doc).
+        setSessionToken(createAutocompleteSessionToken());
+
+        if (!result.ok) {
+          logError('useGooglePlaceSearch.resolve', result.error);
+          showToast({ type: 'error', message: normalizeError(result.error).userMessage });
+          return null;
+        }
+
+        return toPlaceModel(result.data);
+      } finally {
+        setResolvingPlaceId(null);
+      }
+    },
+    [sessionToken]
+  );
+
+  return {
+    suggestions: listQuery.data ?? [],
+    isLoading:   listQuery.isLoading,
+    isError:     listQuery.isError,
+    refetch:     () => { void listQuery.refetch(); },
+    resolve,
+    isResolving: resolvingPlaceId !== null,
+    resolvingPlaceId,
+  };
 }
 
 // ─── usePlace ──────────────────────────────────────────────────────────────────

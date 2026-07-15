@@ -140,6 +140,12 @@ function httpStatusToCode(status?: number): ErrorCode {
   if (status === 404) return 'NOT_FOUND';
   if (status === 409) return 'CONFLICT';
   if (status === 422) return 'VALIDATION_ERROR';
+  // 429 (Too Many Requests) — added for Sprint 4 Prompt 3's Google
+  // Places integration, where a quota-exceeded response is a real,
+  // expected failure mode this app needs to surface distinctly rather
+  // than as a generic UNKNOWN error. Applies to any other 429-emitting
+  // caller too (Supabase, future providers), not just Google.
+  if (status === 429) return 'RATE_LIMITED';
   if (status >= 500)  return 'SERVER_ERROR';
   return 'UNKNOWN';
 }
