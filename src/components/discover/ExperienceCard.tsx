@@ -118,7 +118,9 @@ export type ExperienceCardSource =
   | 'related'
   | 'continue_exploring'
   | 'place_detail'
-  | 'nearby_surfaced';
+  | 'nearby_surfaced'
+  /** Sprint 5 Prompt 1 — a Collection Detail screen's Experience list. */
+  | 'collection_detail';
 
 export interface ExperienceCardProps {
   experience: ExperienceCardModel;

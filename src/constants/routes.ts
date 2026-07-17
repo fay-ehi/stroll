@@ -88,13 +88,60 @@ export const MODAL_ROUTES = {
    * draft. Opened only from the Drafts tile/modal's "Resume" action.
    */
   resumeDraft:      (draftId: string) => `/(modals)/create-experience?draftId=${draftId}` as const,
-  createCollection: '/(modals)/create-collection',
-  addToCollection:  '/(modals)/add-to-collection',
+  createCollection: '/(modals)/create-collection' as const,
+  /**
+   * Sprint 5 Prompt 1 — opened from the Add-to-Collection modal's own
+   * "+ New Collection" entry (requirement #4: "Create new Collection
+   * from inside the modal"). `forExperienceId`, read via
+   * useLocalSearchParams, tells create-collection.tsx to add that
+   * Experience to the new Collection right after creating it, then
+   * navigate into Collection Detail the same way a standalone create
+   * always does (requirement #3) — not back to this modal.
+   */
+  createCollectionForExperience: (experienceId: string) =>
+    `/(modals)/create-collection?forExperienceId=${experienceId}` as const,
+  /**
+   * Sprint 5 Prompt 1 — was a bare, unparameterized route with no
+   * caller yet (nothing in the app referenced MODAL_ROUTES.addToCollection
+   * before this sprint). A required `experienceId` param is the only way
+   * the modal can know which of the user's own Experiences it's adding —
+   * see requirement #4.
+   */
+  addToCollection: (experienceId: string) => `/(modals)/add-to-collection?experienceId=${experienceId}` as const,
   comments:         (experienceId: string) => `/(modals)/comments/${experienceId}` as const,
   placeSearch:      '/(modals)/place-search',
   share:            '/(modals)/share',
   /** Sprint 3 Prompt 3 — opened only from the Profile screen's Drafts tile, never a persistent nav destination (see drafts.tsx's module doc). */
   drafts:           '/(modals)/drafts',
+  /**
+   * Sprint 5 Prompt 2 — Manage Collaborators. One screen serves both
+   * roles reading the same collection_collaborators rows: the creator
+   * sees search/invite + cancel/remove controls; an accepted
+   * collaborator sees a read-only list + "Leave Collection" (see
+   * app/(modals)/collection-collaborators.tsx). Opened only from
+   * Collection Detail's management menu.
+   */
+  collectionCollaborators: (collectionId: string) =>
+    `/(modals)/collection-collaborators/${collectionId}` as const,
+  /**
+   * Sprint 5 Prompt 2, requirement #6 — the Collection-first counterpart
+   * to `addToCollection` above (Experience-first). Lists the signed-in
+   * user's own published Experiences not already in this Collection, so
+   * an owner or collaborator can contribute directly from Collection
+   * Detail rather than going through their Profile grid.
+   */
+  collectionAddExperience: (collectionId: string) =>
+    `/(modals)/collection-add-experience/${collectionId}` as const,
+  /**
+   * Sprint 5 Prompt 2 — "My Invitations": every pending invitation
+   * across all of the signed-in user's Collections, with Accept/Decline.
+   * Opened only from the Profile screen's Invitations pill (see
+   * CollectionsRow.tsx) — deliberately not a persistent nav destination,
+   * same reasoning as `drafts` above. This is the full extent of this
+   * sprint's invitation-response UI; requirement #9 explicitly defers
+   * the Notifications UI/push delivery this would otherwise live behind.
+   */
+  collectionInvitations: '/(modals)/collection-invitations',
 } as const;
 
 // ─── Combined Export ────────────────────────────────────────────────────────────

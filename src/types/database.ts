@@ -249,6 +249,82 @@ export interface Database {
         };
         Relationships: [];
       };
+      // Sprint 5 Prompt 1 addition — concrete `collections` and
+      // `collection_items` entries. Same reasoning as `experiences` above:
+      // written as inline object literals (never `interface`) so they
+      // keep satisfying the `[key: string]` fallback below. See
+      // supabase/migrations/sprint5_prompt1_collections.sql for the
+      // schema this mirrors, and src/types/collection.ts for the
+      // camelCase domain model built on top of it.
+      collections: {
+        Row: {
+          id: string;
+          creator_id: string;
+          title: string;
+          description: string | null;
+          cover_image_url: string | null;
+          cover_type: string;
+          visibility: string;
+          city: string | null;
+          experience_count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          creator_id: string;
+          title: string;
+          description?: string | null;
+          cover_image_url?: string | null;
+          cover_type?: string;
+          visibility?: string;
+          city?: string | null;
+          experience_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          creator_id?: string;
+          title?: string;
+          description?: string | null;
+          cover_image_url?: string | null;
+          cover_type?: string;
+          visibility?: string;
+          city?: string | null;
+          experience_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      collection_items: {
+        Row: {
+          id: string;
+          collection_id: string;
+          experience_id: string;
+          added_by: string;
+          position: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          collection_id: string;
+          experience_id: string;
+          added_by: string;
+          position?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          collection_id?: string;
+          experience_id?: string;
+          added_by?: string;
+          position?: number;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       // Every other/future table falls back to this generic shape until
       // it's given a concrete entry (or the whole file is regenerated).
       [key: string]: {

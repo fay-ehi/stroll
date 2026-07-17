@@ -62,7 +62,12 @@ const DEFAULT_LIMIT = PAGINATION.DEFAULT_PAGE_SIZE;
 // sorted client-side in the mapper) photo set in one round trip, so the
 // feed never needs a waterfall of follow-up queries per card.
 
-const SELECT_COLUMNS = `
+// Exported — src/services/collectionsService.ts's getCollectionExperiences()
+// reuses this exact string (Sprint 5 Prompt 1) so a Collection's Experience
+// list embeds precisely the same shape the Discover feed does, rather than
+// hand-duplicating this column list a second time. Keep this the single
+// source of truth for "what an ExperienceFeedRow-shaped select looks like".
+export const SELECT_COLUMNS = `
   id, user_id, place_id, city, story, would_recommend, amount_spent, visit_type,
   good_for_tags, vibe_tags, like_count, comment_count, featured, created_at, updated_at,
   creator:profiles(id, username, display_name, avatar_url, is_verified),

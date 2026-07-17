@@ -53,7 +53,7 @@ import {
   Skeleton, SkeletonCircle, SkeletonText,
   EmptyState,
 } from '@/components/ui';
-import { DraftsTile, ExperienceGridTile } from '@/components/profile';
+import { DraftsTile, ExperienceGridTile, CollectionsRow } from '@/components/profile';
 import { useSignOut } from '@/hooks/useAuth';
 import {
   useProfile,
@@ -65,6 +65,8 @@ import {
 import { useUserGallery, useDeleteExperience } from '@/hooks/useUserGallery';
 import { useDraftsQuery } from '@/hooks/useExperienceDrafts';
 import { useFollowCounts } from '@/hooks/useFollows';
+import { useMyCollections } from '@/hooks/useCollections';
+import { useMyPendingInvitations } from '@/hooks/useCollaboration';
 import { useProfileStore, type AvatarUploadStage } from '@/stores/profileStore';
 import { PROFILE_LIMITS } from '@/constants/app';
 import { ROUTES, MODAL_ROUTES } from '@/constants/routes';
@@ -110,6 +112,12 @@ export default function ProfileScreen() {
 
   const gallery = useUserGallery(profile?.id);
   const { followerCount, followingCount } = useFollowCounts(profile?.id);
+  const myCollections = useMyCollections(profile?.id);
+  // Sprint 5 Prompt 2 — powers CollectionsRow's own-profile-only
+  // Invitations pill (see that component's own doc). Own profile only,
+  // so `profile?.id` (this screen is always "my profile", never
+  // someone else's) is correctly "the signed-in user" here.
+  const { invitations: pendingInvitations } = useMyPendingInvitations(profile?.id);
   // Named `experienceDrafts` (not `drafts`) to stay clear of the profile
   // EDIT draft below (`useProfileStore((s) => s.draft)`) — two entirely
   // different domains that happen to share the word "draft".
@@ -198,6 +206,25 @@ export default function ProfileScreen() {
     [deleteExperience],
   );
 
+  // Sprint 5 Prompt 1 — see ExperienceGridTile.tsx's module doc for why
+  // this tile's long-press action sheet is the entry point for
+  // "Add Experience to Collection" (requirement #4).
+  const handleAddToCollection = useCallback((experience: ExperienceCardModel) => {
+    router.push(MODAL_ROUTES.addToCollection(experience.id) as never);
+  }, []);
+
+  const handleSelectCollection = useCallback((collection: { id: string }) => {
+    router.push(ROUTES.app.collectionDetail(collection.id) as never);
+  }, []);
+
+  const handleCreateCollection = useCallback(() => {
+    router.push(MODAL_ROUTES.createCollection as never);
+  }, []);
+
+  const handleOpenInvitations = useCallback(() => {
+    router.push(MODAL_ROUTES.collectionInvitations as never);
+  }, []);
+
   const renderGridItem = useCallback(
     ({ item }: { item: ProfileGridItem }) => {
       if (item.type === 'drafts') {
@@ -220,10 +247,19 @@ export default function ProfileScreen() {
           onPress={handleOpenExperience}
           onEdit={handleEditExperience}
           onDelete={handleDeleteExperience}
+          onAddToCollection={handleAddToCollection}
         />
       );
     },
-    [tileSize, experienceDrafts, handleOpenDrafts, handleOpenExperience, handleEditExperience, handleDeleteExperience],
+    [
+      tileSize,
+      experienceDrafts,
+      handleOpenDrafts,
+      handleOpenExperience,
+      handleEditExperience,
+      handleDeleteExperience,
+      handleAddToCollection,
+    ],
   );
 
   const gridKeyExtractor = useCallback((item: ProfileGridItem) => {
@@ -428,6 +464,20 @@ export default function ProfileScreen() {
         </View>
       )}
 
+      {!isEditing ? (
+        <View style={styles.collectionsSection}>
+          <CollectionsRow
+            collections={myCollections.collections}
+            isLoading={myCollections.isLoading}
+            isOwnProfile
+            onSelectCollection={handleSelectCollection}
+            onCreateCollection={handleCreateCollection}
+            invitationCount={pendingInvitations.length}
+            onOpenInvitations={handleOpenInvitations}
+          />
+        </View>
+      ) : null}
+
       <View style={styles.galleryDivider} />
     </View>
   );
@@ -599,6 +649,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.neutral.border,
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.xxs,
+  },
+  collectionsSection: {
+    marginTop: theme.spacing.lg,
   },
   gridRow: {
     gap: GRID_GAP,

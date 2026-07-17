@@ -12,9 +12,8 @@
  *
  * "Continue Exploring" (a horizontal rail that used to sit above the
  * feed) has been removed entirely per product direction — the For You
- * panel's list header is now empty (see `forYouListHeader` below), left
- * in place only as a slot for whatever panel-specific content comes
- * next (e.g. the Collections carousel).
+ * panel's list header (see `forYouListHeader` below) now carries the
+ * Collections carousel instead (Sprint 5 Prompt 3).
  *
  * Swipe-between-tabs, corrected structure: the top bar and the
  * For You/Following tab control are shared chrome — rendered EXACTLY
@@ -36,11 +35,13 @@
  * it during a drag) — this is the ONLY thing that connects the header to
  * the pager below it now; no header content is duplicated into panels.
  *
- * Collections carousel: intentionally NOT added to the header yet — see
- * src/components/discover/CollectionCarousel.tsx's doc. That component
- * exists as a ready-to-wire skeleton (Sprint N placeholder) per product
- * direction: build the shape now, connect real data + turn it on for a
- * future sprint once the collections table/service exists.
+ * Collections carousel: wired into the For You header as of Sprint 5
+ * Prompt 3 (requirement #1) — see `forYouListHeader` below and
+ * useCollectionsCarousel.ts. Selecting a card navigates to the existing
+ * Collection Detail screen via `handleSelectCollection` (requirement
+ * #2); pull-to-refresh runs both the Experience feed's own refresh and
+ * this carousel's refetch together (requirement #7) via
+ * `handleRefreshForYou`.
  *
  * Sprint 2 Prompt 3 (Personalization & Refinement) changes, on top of
  * Prompt 1's layout:
@@ -60,10 +61,11 @@
  *     surface that reuses it later gets correct tracking for free).
  */
 
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSharedValue } from 'react-native-reanimated';
+import { router } from 'expo-router';
 
 import { theme } from '@/theme';
 import {
@@ -72,16 +74,20 @@ import {
   SwipeableTabs,
   ForYouFeed,
   FollowingFeed,
+  CollectionCarousel,
   type DiscoverFeedTab,
 } from '@/components/discover';
 import { useDiscoverFeed, useDiscoverFeedItems } from '@/hooks/useDiscoverFeed';
+import { useCollectionsCarousel } from '@/hooks/useCollectionsCarousel';
 import { useProfile, useUpdateProfile } from '@/hooks/useProfile';
 import { useLocation } from '@/hooks/useLocation';
 import { useNearbyExperiences } from '@/hooks/useNearbyExperiences';
 import { useNetworkStatus } from '@/hooks';
 import { useLocationStore } from '@/stores/locationStore';
 import { showToast } from '@/stores/toastStore';
+import { ROUTES } from '@/constants/routes';
 import type { DiscoverSortMode } from '@/types/experience';
+import type { CollectionCardModel } from '@/types/collection';
 
 export default function DiscoverScreen() {
   const { profile } = useProfile();
@@ -99,6 +105,18 @@ export default function DiscoverScreen() {
     city,
     interests,
   });
+
+  // ─── Sprint 5 Prompt 3 — Collection Discovery ───────────────────────────────
+  // Requirement #1 (Discover Collection Carousel). A single, bounded rail —
+  // see useCollectionsCarousel.ts's own doc for why this doesn't paginate
+  // the way the main feed does.
+  const collectionsCarousel = useCollectionsCarousel({ city });
+
+  const handleSelectCollection = useCallback((collection: CollectionCardModel) => {
+    // Requirement #2 — router.push (not replace) preserves navigation
+    // history, same convention ExperienceCard/PlaceCard already use.
+    router.push(ROUTES.app.collectionDetail(collection.id) as never);
+  }, []);
 
   // A page-fetch failure (scrolling past the last loaded page) shouldn't
   // blow away an already-populated feed — surface it as a toast instead of
@@ -197,17 +215,35 @@ export default function DiscoverScreen() {
   };
 
   // For You panel's own list header — Continue Exploring was removed
-  // entirely per product direction; nothing panel-specific remains here
-  // today. Kept as its own memoized element (rather than folded away)
-  // so a future rail/carousel has an obvious slot to land in, same as
-  // emptyListHeader below.
-  const forYouListHeader = useMemo(() => <View style={styles.forYouHeaderStack} />, []);
+  // entirely per product direction. Sprint 5 Prompt 3: the Collections
+  // carousel now fills this slot (requirement #1).
+  const forYouListHeader = useMemo(
+    () => (
+      <View style={styles.forYouHeaderStack}>
+        <CollectionCarousel
+          collections={collectionsCarousel.collections}
+          isLoading={collectionsCarousel.isLoading}
+          onSelectCollection={handleSelectCollection}
+        />
+      </View>
+    ),
+    [collectionsCarousel.collections, collectionsCarousel.isLoading, handleSelectCollection],
+  );
 
   // Following has no panel-specific header content today — passing an
   // empty element (rather than null) keeps ForYouFeed/FollowingFeed's
   // `listHeader` prop non-optional and simple, and gives a future
   // "Following"-only rail somewhere to slot in later.
   const emptyListHeader = useMemo(() => <View />, []);
+
+  // Requirement #7 (Pagination — "Pull-to-refresh") — pulling to refresh
+  // the For You panel also refreshes the Collections carousel, so both
+  // surfaces on this screen stay in sync from one gesture rather than
+  // needing their own separate refresh affordance.
+  const handleRefreshForYou = useCallback(async () => {
+    collectionsCarousel.refetch();
+    await refresh();
+  }, [refresh, collectionsCarousel.refetch]);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -222,7 +258,7 @@ export default function DiscoverScreen() {
           <ForYouFeed
             feed={feed}
             sort={sort as DiscoverSortMode}
-            refresh={refresh}
+            refresh={handleRefreshForYou}
             isRefreshing={isRefreshing}
             isOffline={isOffline}
             city={city}

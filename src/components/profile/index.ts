@@ -11,3 +11,9 @@ export type { DraftsTileProps } from './DraftsTile';
 
 export { ExperienceGridTile } from './ExperienceGridTile';
 export type { ExperienceGridTileProps } from './ExperienceGridTile';
+
+export { CollectionPill } from './CollectionPill';
+export type { CollectionPillProps } from './CollectionPill';
+
+export { CollectionsRow } from './CollectionsRow';
+export type { CollectionsRowProps } from './CollectionsRow';

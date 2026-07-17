@@ -41,7 +41,11 @@ export type AnalyticsEventName =
 export interface AnalyticsEventProperties {
   experience_opened: {
     experienceId: string;
-    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail' | 'nearby_surfaced';
+    // Sprint 5 Prompt 1 added 'collection_detail' — a Collection Detail
+    // screen's Experience list is a new ExperienceCard-rendering surface
+    // (see ExperienceCardSource in ExperienceCard.tsx, this file's own
+    // source of truth for the full list of surfaces).
+    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail' | 'nearby_surfaced' | 'collection_detail';
   };
   /** Not fired anywhere in Discover as of this sprint — category selection lives in Search now (see CategoriesRow's doc). Defined and ready for Search to call. */
   category_selected: { categoryId: string };

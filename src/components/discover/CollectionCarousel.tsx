@@ -1,10 +1,10 @@
 /**
- * Stroll — Collection Carousel (Skeleton)
+ * Stroll — Collection Carousel
  * src/components/discover/CollectionCarousel.tsx
  *
- * STATUS: Built, tested (type-checked), and NOT rendered anywhere yet —
- * see src/types/collection.ts's module doc for the full picture and the
- * concrete steps to make this live.
+ * Mounted in the Discover feed as of Sprint 5 Prompt 3 — see
+ * app/(app)/(tabs)/discover.tsx's `forYouHeader`, which renders this
+ * fed by useCollectionsCarousel({ city }).
  *
  * Structurally a near-copy of ExperienceRail.tsx (horizontal FlatList of
  * cards, titled, own loading skeleton, renders nothing if empty) — kept
@@ -12,23 +12,14 @@
  * CollectionCard's layout (image + title + city + owner/collaborator
  * avatars + spot count) is different enough from ExperienceCard that a
  * shared generic rail would need to know too much about both card
- * shapes to stay simple.
- *
- * ── How to turn this on (future sprint) ──
- * In app/(app)/(tabs)/discover.tsx's `forYouHeader`, replace the
- * "Collections carousel slot" comment with:
- *
- *   const { collections, isLoading } = useCollectionsCarousel({ city });
- *   ...
- *   <CollectionCarousel
- *     collections={collections}
- *     isLoading={isLoading}
- *   />
- *
- * (import useCollectionsCarousel from '@/hooks/useCollectionsCarousel',
- * CollectionCarousel from '@/components/discover'.) That's the entire
- * wiring — everything else (types, mock data, hook, card, this rail) is
- * already built and type-checked.
+ * shapes to stay simple. "Renders nothing if empty" is a deliberate,
+ * silent degrade for a home-screen rail — matches ExperienceRail's own
+ * behavior and requirement #10's "Repository failures / Supabase
+ * failures / Network failures" for this surface: useCollectionsCarousel
+ * surfaces `isError` too, but a home-screen carousel failing shouldn't
+ * block or alarm the rest of Discover, so an errored fetch degrades to
+ * the same empty `collections = []` render as "no public collections
+ * yet" rather than its own error banner.
  */
 
 import React, { useCallback } from 'react';

@@ -151,6 +151,27 @@ export const queryKeys = {
     detail: (id: string) => ['collections', 'detail', id] as const,
     byUser: (userId: string) => ['collections', 'by-user', userId] as const,
     trending: () => ['collections', 'trending'] as const,
+    /**
+     * Sprint 5 Prompt 3 — the public Collections feed (requirement #1's
+     * Discover carousel, and any future "All Collections" directory
+     * screen paging further into the same cursor). Folded in from
+     * useCollectionsCarousel.ts's own local key factory now that
+     * fetchPublicCollectionsFeed() is a real query — that hook's doc
+     * comment called this out as the exact follow-up step. Not `city`
+     * alone — kept as its own named key (not reusing `all()`) so
+     * invalidating the rest of the Collections domain doesn't need to
+     * know this one is city-scoped.
+     */
+    feed: (city?: string) => ['collections', 'feed', city ?? 'all'] as const,
+    /** Sprint 5 Prompt 3 — architecture-preparation for Search (requirement #3); no Search screen calls this yet (see collectionsService.ts's searchCollections doc). */
+    search: (query: string) => ['collections', 'search', query] as const,
+    /** Sprint 5 Prompt 1 — which of `userId`'s own Collections already contain `experienceId`. Backs the Add-to-Collection modal's pre-checked state (see getCollectionsContainingExperience in collectionsService.ts). */
+    containing: (userId: string, experienceId: string) =>
+      ['collections', 'containing', userId, experienceId] as const,
+    /** Sprint 5 Prompt 2 — the full collaborator/invitation list for a Collection (every status), owner- and collaborator-visible. Backs the Manage Collaborators screen. */
+    collaborators: (collectionId: string) => ['collections', 'collaborators', collectionId] as const,
+    /** Sprint 5 Prompt 2 — `userId`'s own pending invitations across every Collection. Backs the Profile screen's Invitations entry point and its list modal. */
+    myInvitations: (userId: string) => ['collections', 'my-invitations', userId] as const,
   },
 
   // ── Users / Profiles ────────────────────────────────────────────────────────
@@ -161,6 +182,9 @@ export const queryKeys = {
     followers: (id: string) => ['users', 'followers', id] as const,
     following: (id: string) => ['users', 'following', id] as const,
     suggested: () => ['users', 'suggested'] as const,
+    /** Sprint 5 Prompt 2 — live-typing user search for the Invite Collaborators screen, scoped per-Collection since the eligible/blocked set (already-invited, already-collaborating) differs per Collection. */
+    invitableSearch: (collectionId: string, query: string) =>
+      ['users', 'invitable-search', collectionId, query] as const,
   },
 
   // ── Saved Places ────────────────────────────────────────────────────────────
