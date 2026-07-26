@@ -30,7 +30,8 @@
 
 import { supabase, type Tables } from '@/lib/supabase';
 import { normalizeError, makeError, type StrollError } from '@/lib/errors';
-import { IMAGE_CONFIG } from '@/constants/app';
+import { IMAGE_CONFIG, SEARCH_LIMITS } from '@/constants/app';
+import type { CreatorSearchRow } from '@/types/search';
 
 // ─── Result Type ───────────────────────────────────────────────────────────────
 
@@ -172,6 +173,55 @@ export async function checkUsernameAvailable(
 
     if (error) return fail(error);
     return ok(data === null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Search Creators (Sprint 7 Prompt 1 — Search Foundation) ───────────────────
+// Backs the Search screen's Creators section — src/services/searchService.ts
+// orchestrates this alongside experiencesService.ts's searchExperiences()
+// and collectionsService.ts's searchCollections() into one unified
+// response. Deliberately its own function rather than a repurposed
+// collaborationService.ts's searchInvitableUsers() — that function is
+// scoped to a single Collection's invite-eligibility (excludes existing
+// collaborators/pending invites for THAT collection), a different,
+// narrower concern than a global "search every creator" this screen
+// needs. The two share the same underlying `.or(username.ilike...,
+// display_name.ilike...)` shape (this file remains the only one that
+// queries `profiles` directly) but nothing else.
+//
+// `excludeUserId` (typically the signed-in user) keeps a Creator from
+// finding themselves in their own search results — mirrors the Follow
+// domain's own "a user can never follow themselves" rule
+// (useFollows.ts), even though nothing here writes a follow; it's simply
+// not a useful result to show.
+
+export async function searchCreators(params: {
+  query: string;
+  excludeUserId?: string;
+  limit?: number;
+}): Promise<ProfileResult<CreatorSearchRow[]>> {
+  try {
+    const query = params.query.trim();
+    if (query.length < SEARCH_LIMITS.MIN_QUERY_LENGTH) return ok([]);
+
+    const likePattern = `%${query}%`;
+
+    let dbQuery = supabase
+      .from('profiles')
+      .select('id, username, display_name, avatar_url, bio, is_verified')
+      .or(`username.ilike.${likePattern},display_name.ilike.${likePattern}`)
+      .limit(params.limit ?? SEARCH_LIMITS.RESULTS_PER_SECTION);
+
+    if (params.excludeUserId) {
+      dbQuery = dbQuery.neq('id', params.excludeUserId);
+    }
+
+    const { data, error } = await dbQuery;
+    if (error) return fail(error);
+
+    return ok((data as unknown as CreatorSearchRow[]) ?? []);
   } catch (err) {
     return fail(err);
   }

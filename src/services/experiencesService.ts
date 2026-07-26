@@ -38,11 +38,12 @@
 
 import { supabase } from '@/lib/supabase';
 import { normalizeError, makeError, type StrollError } from '@/lib/errors';
-import { PAGINATION, IMAGE_CONFIG } from '@/constants/app';
-import { VALIDATION } from '@/utils';
-import type { PlaceCategoryId } from '@/constants/places';
+import { PAGINATION, IMAGE_CONFIG, SEARCH_LIMITS, GOOD_FOR_TAGS, VIBE_TAGS } from '@/constants/app';
+import { VALIDATION, uniqueBy } from '@/utils';
+import { PLACE_CATEGORIES, type PlaceCategoryId } from '@/constants/places';
 import type { ExperienceFeedRow, ExperienceDetailRow, DiscoverSortMode } from '@/types/experience';
 import type { AmountSpent, VisitType, GoodForTag, VibeTag } from '@/constants/app';
+import { searchPlaces } from '@/services/placesService';
 
 // ─── Result Type ───────────────────────────────────────────────────────────────
 
@@ -491,6 +492,149 @@ export async function fetchExperiencesByPlace(params: {
         : null;
 
     return ok({ rows, nextCursor });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Search Experiences (Sprint 7 Prompt 1 — Search Foundation) ─────────────────
+// Backs the Search screen's Experiences section — src/services/searchService.ts
+// orchestrates this alongside collectionsService.ts's searchCollections()
+// and profileService.ts's searchCreators() into one unified response.
+//
+// Per the prompt's own "content-first, not place-first" search
+// philosophy — searching a Place's name (e.g. "Cafe W Lagos") must
+// surface Experiences AT that place, never the Place itself (Places
+// aren't a standalone search result anywhere in this app). An
+// Experience has no title field of its own — its Card's `title` is its
+// Place's name (see toExperienceCardModel's own doc in types/experience.ts)
+// — so "search by title" here means matching the embedded place's name,
+// not a column on `experiences` itself.
+//
+// Four independent matches, merged and de-duplicated by id in TS rather
+// than one compound `.or()` query — the same "fetch once, group/filter
+// in TS" approach searchCollections() (collectionsService.ts) already
+// takes, and for the same reason: a couple of small, bounded lookups
+// (matching place ids, matching tag values) are simpler and easier to
+// verify than a single PostgREST filter string mixing an inner-joined
+// embed filter with array-overlap operators.
+//   1. `story` ilike match — the "story/description" requirement.
+//   2. Place name match — reuses placesService.ts's own searchPlaces()
+//      rather than hand-rolling a second places-by-name query.
+//   3. Tag match — good_for_tags/vibe_tags overlapping any recognized
+//      tag whose label contains the query text.
+//   4. Category match — the embedded place's category, resolved via a
+//      small places-by-category id lookup (place.category can't be
+//      filtered directly here without the `!inner()` join this file's
+//      SELECT_COLUMNS deliberately avoids — see that constant's doc).
+//
+// Deliberately NOT paginated — this prompt's own scope excludes "Search
+// filters, Search sorting" and any infinite-scroll pagination; `limit`
+// bounds each section to a fast, scannable result set
+// (SEARCH_LIMITS.RESULTS_PER_SECTION, constants/app.ts).
+
+function matchingGoodForTags(query: string): GoodForTag[] {
+  const q = query.toLowerCase();
+  return GOOD_FOR_TAGS.filter((tag) => tag.toLowerCase().includes(q));
+}
+
+function matchingVibeTags(query: string): VibeTag[] {
+  const q = query.toLowerCase();
+  return VIBE_TAGS.filter((tag) => tag.toLowerCase().includes(q));
+}
+
+function matchingCategoryIds(query: string): PlaceCategoryId[] {
+  const q = query.toLowerCase();
+  return PLACE_CATEGORIES.filter(
+    (category) => category.label.toLowerCase().includes(q) || category.id.includes(q),
+  ).map((category) => category.id);
+}
+
+export async function searchExperiences(params: {
+  query: string;
+  limit?: number;
+}): Promise<ExperiencesResult<ExperienceFeedRow[]>> {
+  try {
+    const query = params.query.trim();
+    if (query.length < SEARCH_LIMITS.MIN_QUERY_LENGTH) return ok([]);
+
+    const limit = params.limit ?? SEARCH_LIMITS.RESULTS_PER_SECTION;
+    const likePattern = `%${query}%`;
+
+    const goodForTags = matchingGoodForTags(query);
+    const vibeTags = matchingVibeTags(query);
+    const categoryIds = matchingCategoryIds(query);
+
+    // Resolve the two embedded-field matches (place name, place
+    // category) into flat place id lists before touching `experiences`
+    // at all — neither is a column on `experiences` itself.
+    const [placeNameResult, categoryPlacesResult] = await Promise.all([
+      searchPlaces({ query, limit }),
+      categoryIds.length > 0
+        ? supabase.from('places').select('id').in('category', categoryIds).limit(limit * 2)
+        : Promise.resolve({ data: [] as { id: string }[], error: null }),
+    ]);
+
+    if (!placeNameResult.ok) return fail(placeNameResult.error);
+    if (categoryPlacesResult.error) return fail(categoryPlacesResult.error);
+
+    const placeIds = uniqueBy(
+      [
+        ...placeNameResult.data.map((place) => place.id),
+        ...(categoryPlacesResult.data ?? []).map((row) => row.id),
+      ],
+      (id) => id,
+    );
+
+    const [storyResult, goodForResult, vibeResult, placeResult] = await Promise.all([
+      supabase
+        .from('experiences')
+        .select(SELECT_COLUMNS)
+        .ilike('story', likePattern)
+        .order('created_at', { ascending: false })
+        .limit(limit),
+      goodForTags.length > 0
+        ? supabase
+            .from('experiences')
+            .select(SELECT_COLUMNS)
+            .overlaps('good_for_tags', goodForTags)
+            .order('created_at', { ascending: false })
+            .limit(limit)
+        : Promise.resolve({ data: [] as unknown[], error: null }),
+      vibeTags.length > 0
+        ? supabase
+            .from('experiences')
+            .select(SELECT_COLUMNS)
+            .overlaps('vibe_tags', vibeTags)
+            .order('created_at', { ascending: false })
+            .limit(limit)
+        : Promise.resolve({ data: [] as unknown[], error: null }),
+      placeIds.length > 0
+        ? supabase
+            .from('experiences')
+            .select(SELECT_COLUMNS)
+            .in('place_id', placeIds)
+            .order('created_at', { ascending: false })
+            .limit(limit)
+        : Promise.resolve({ data: [] as unknown[], error: null }),
+    ]);
+
+    if (storyResult.error) return fail(storyResult.error);
+    if (goodForResult.error) return fail(goodForResult.error);
+    if (vibeResult.error) return fail(vibeResult.error);
+    if (placeResult.error) return fail(placeResult.error);
+
+    const merged = uniqueBy(
+      [
+        ...((storyResult.data as unknown as ExperienceFeedRow[]) ?? []),
+        ...((goodForResult.data as unknown as ExperienceFeedRow[]) ?? []),
+        ...((vibeResult.data as unknown as ExperienceFeedRow[]) ?? []),
+        ...((placeResult.data as unknown as ExperienceFeedRow[]) ?? []),
+      ],
+      (row) => row.id,
+    ).slice(0, limit);
+
+    return ok(merged);
   } catch (err) {
     return fail(err);
   }

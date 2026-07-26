@@ -189,6 +189,29 @@ export const TIMEOUTS = {
   SPLASH_MIN_MS:             500,
 } as const;
 
+// ─── Search (Sprint 7 Prompt 1 — Search Foundation) ────────────────────────────
+// Shared by every new Search-domain call site — experiencesService.ts's
+// searchExperiences(), profileService.ts's searchCreators(), and
+// useSearch.ts's debounced unified query — so all three sections apply
+// the exact same "still typing" threshold and result cap. Deliberately
+// its own object rather than folded into PAGINATION above: PAGINATION's
+// SEARCH_SECTION_PREVIEW predates this sprint and governs a different
+// concern (how many of the ALREADY-FETCHED results a section shows
+// before "See all"), not how many are fetched or how short a query can be.
+// collectionsService.ts's existing searchCollections() is untouched — it
+// only guards against a genuinely empty query — so its own laxer
+// behavior doesn't change; useSearch.ts simply never calls it below this
+// threshold, which is what actually gives the Search screen consistent
+// behavior across all three sections without touching shipped code.
+export const SEARCH_LIMITS = {
+  /** Below this many characters, a query is treated as "still typing" — no request fires. */
+  MIN_QUERY_LENGTH:  2,
+  /** Max results fetched per section (Experiences / Collections / Creators) per search. */
+  RESULTS_PER_SECTION: 10,
+  /** Max recent searches kept in local storage (see lib/recentSearches.ts). */
+  MAX_RECENT_SEARCHES: 10,
+} as const;
+
 // ─── Image Configuration ───────────────────────────────────────────────────────
 
 export const IMAGE_CONFIG = {

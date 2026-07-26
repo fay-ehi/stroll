@@ -248,8 +248,20 @@ export const queryKeys = {
   },
 
   // ── Search ──────────────────────────────────────────────────────────────────
+  // `results`/`trending` predate Sprint 7 Prompt 1 as inert scaffolding —
+  // `results(query)` is now real (see useSearch.ts's unified query,
+  // src/services/searchService.ts); `trending()` stays reserved for
+  // Sprint 7 Prompt 2's own "trending searches" (explicitly out of this
+  // prompt's scope).
   search: {
     results: (query: string) => ['search', 'results', query] as const,
     trending: () => ['search', 'trending'] as const,
+    /**
+     * Sprint 7 Prompt 1 — the user's locally-stored recent search terms
+     * (see lib/recentSearches.ts). Not server data — wrapped in TanStack
+     * Query purely for consistent loading-state ergonomics, same
+     * reasoning as queryKeys.personalization.frequentCategories.
+     */
+    recent: () => ['search', 'recent'] as const,
   },
 } as const;

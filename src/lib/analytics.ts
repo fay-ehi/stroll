@@ -44,11 +44,11 @@ export interface AnalyticsEventProperties {
   experience_opened: {
     experienceId: string;
     // Sprint 5 Prompt 1 added 'collection_detail'; Sprint 5 Prompt 4 added
-    // 'saved'; Sprint 6 Prompt 1 added 'public_profile' — each is a new
-    // ExperienceCard-rendering surface (see ExperienceCardSource in
-    // ExperienceCard.tsx, this file's own source of truth for the full
-    // list of surfaces).
-    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail' | 'nearby_surfaced' | 'collection_detail' | 'saved' | 'public_profile';
+    // 'saved'; Sprint 6 Prompt 1 added 'public_profile'; Sprint 7 Prompt 1
+    // added 'search' — each is a new ExperienceCard-rendering surface
+    // (see ExperienceCardSource in ExperienceCard.tsx, this file's own
+    // source of truth for the full list of surfaces).
+    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail' | 'nearby_surfaced' | 'collection_detail' | 'saved' | 'public_profile' | 'search';
   };
   /** Not fired anywhere in Discover as of this sprint — category selection lives in Search now (see CategoriesRow's doc). Defined and ready for Search to call. */
   category_selected: { categoryId: string };
@@ -95,7 +95,7 @@ export interface AnalyticsEventProperties {
  * free within `lib/` — doesn't need to import from the components layer
  * just for a union of string literals; the two are kept in sync by hand,
  * the same way this file's own module doc already flags for
- * `experience_opened.source`.
+ * `experience_opened.source`. Sprint 7 Prompt 1 added 'search'.
  */
 export type LikeSource =
   | 'discover_feed'
@@ -106,7 +106,8 @@ export type LikeSource =
   | 'collection_detail'
   | 'saved'
   | 'public_profile'
-  | 'experience_detail';
+  | 'experience_detail'
+  | 'search';
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
 

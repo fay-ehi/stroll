@@ -193,7 +193,9 @@ export type ExperienceCardSource =
   /** Sprint 5 Prompt 4 — the Saved tab's own Experiences section. The only source that renders the card's Save button — see module doc. */
   | 'saved'
   /** Sprint 6 Prompt 1 — a Public Profile screen's published Experience grid (app/(app)/profile/[id].tsx). Does not render the Save button — same reasoning as every non-'saved' source. */
-  | 'public_profile';
+  | 'public_profile'
+  /** Sprint 7 Prompt 1 — the Search screen's Experiences results section (app/(app)/(tabs)/search.tsx). Does not render the Save button — same reasoning as every non-'saved' source. */
+  | 'search';
 
 export interface ExperienceCardProps {
   experience: ExperienceCardModel;
