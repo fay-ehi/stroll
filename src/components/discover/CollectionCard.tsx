@@ -28,17 +28,37 @@
  * inside a horizontal FlatList, and CollectionCardModel is an immutable
  * value produced fresh per query response, so a shallow prop comparison
  * is correct here with no custom comparator needed.
+ *
+ * Sprint 5 Prompt 4 — added a Save/Unsave button, same corner-overlay
+ * treatment (scrim + icon, top-right of the cover) as ExperienceCard's
+ * own, reading/writing its own saved state internally
+ * (useIsCollectionSaved + useToggleSaveCollection) rather than through a
+ * prop — the requirement #7 "Collection Cards should [indicate saved
+ * state] too" applied to every existing mount of this card (the Discover
+ * carousel today) with no call-site changes required.
+ *
+ * Bug fix (this pass): `styles.card` used to carry both the elevated
+ * shadow (via Card's `variant="elevated"`) AND `overflow: 'hidden'` on
+ * the same View — on iOS, a shadow is drawn outside the view's own
+ * bounds, so `overflow: 'hidden'` clips it away entirely, leaving the
+ * card visually flat everywhere this renders (Discover's carousel, and
+ * the Saved tab's Collections grid). ExperienceCard.tsx already solved
+ * this with a card/cardInner split — the shadow lives on the outer,
+ * unclipped `card`, and the rounded-corner clipping (needed so the cover
+ * image's square corners don't poke out past the card's rounded ones)
+ * moves one level down to `cardInner`. Mirrored here for the same fix.
  */
 
 import React from 'react';
 import { View, Pressable, StyleSheet, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { Users, ImageOff } from 'lucide-react-native';
+import { Users, ImageOff, Bookmark, BookmarkCheck } from 'lucide-react-native';
 
 import { theme } from '@/theme';
 import { Card, Avatar, Icon, H5, BodySmall, Caption } from '@/components/ui';
 import { useImageLoadFailed } from '@/hooks';
+import { useIsCollectionSaved, useToggleSaveCollection } from '@/hooks/useSaved';
 import { hitSlop } from '@/theme/utils';
 import { ROUTES } from '@/constants/routes';
 import type { CollectionCardModel } from '@/types/collection';
@@ -84,6 +104,13 @@ export const CollectionCard = React.memo(function CollectionCard({
   const [imageFailed, onImageError] = useImageLoadFailed(collection.coverImage?.url);
   const showImage = collection.coverImage && !imageFailed;
 
+  const isSaved = useIsCollectionSaved(collection.id);
+  const toggleSave = useToggleSaveCollection();
+
+  const handleSavePress = () => {
+    toggleSave.mutate({ collectionId: collection.id, isSaved });
+  };
+
   return (
     <Pressable
       onPress={onPress ? () => onPress(collection) : undefined}
@@ -93,48 +120,68 @@ export const CollectionCard = React.memo(function CollectionCard({
       accessibilityLabel={collection.title}
     >
       <Card variant="elevated" padding={0} style={styles.card}>
-        <View style={styles.imageWrapper}>
-          {showImage ? (
-            <Image
-              source={{ uri: collection.coverImage!.url }}
-              style={styles.image}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              onError={onImageError}
-              accessibilityIgnoresInvertColors
-            />
-          ) : (
-            <View style={[styles.image, styles.imageFallback]}>
-              <Icon icon={ImageOff} size="lg" color={theme.colors.text.tertiary} />
-            </View>
-          )}
-        </View>
+        <View style={styles.cardInner}>
+          <View style={styles.imageWrapper}>
+            {showImage ? (
+              <Image
+                source={{ uri: collection.coverImage!.url }}
+                style={styles.image}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                onError={onImageError}
+                accessibilityIgnoresInvertColors
+              />
+            ) : (
+              <View style={[styles.image, styles.imageFallback]}>
+                <Icon icon={ImageOff} size="lg" color={theme.colors.text.tertiary} />
+              </View>
+            )}
 
-        <View style={styles.body}>
-          <H5 numberOfLines={1}>{collection.title}</H5>
+            {/* Nested Pressable — same "inner Pressable wins the touch" pattern ContributorAvatar below already uses inside this card's own outer Pressable. */}
+            <Pressable
+              onPress={handleSavePress}
+              disabled={toggleSave.isPending}
+              hitSlop={hitSlop(SAVE_BUTTON_DIAMETER)}
+              style={styles.saveButton}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSaved, disabled: toggleSave.isPending }}
+              accessibilityLabel={isSaved ? 'Remove from Saved' : 'Save this collection'}
+            >
+              <View style={styles.saveButtonScrim} />
+              <Icon
+                icon={isSaved ? BookmarkCheck : Bookmark}
+                size="sm"
+                color={isSaved ? theme.colors.brand.primary : theme.colors.static.white}
+              />
+            </Pressable>
+          </View>
 
-          {collection.city ? (
-            <Caption color={theme.colors.text.tertiary}>{collection.city}</Caption>
-          ) : null}
+          <View style={styles.body}>
+            <H5 numberOfLines={1}>{collection.title}</H5>
 
-          <View style={styles.metaRow}>
-            <View style={styles.avatarStack}>
-              <ContributorAvatar person={collection.owner} />
-              {collection.collaborators.slice(0, 2).map((collaborator) => (
-                <ContributorAvatar key={collaborator.id} person={collaborator} />
-              ))}
-            </View>
-
-            {collection.isCollaborative ? (
-              <Icon icon={Users} size="xs" color={theme.colors.text.tertiary} />
+            {collection.city ? (
+              <Caption color={theme.colors.text.tertiary}>{collection.city}</Caption>
             ) : null}
-            <BodySmall color={theme.colors.text.tertiary} numberOfLines={1} style={styles.metaText}>
-              {collection.isCollaborative
-                ? `${collection.collaborators.length + 1} curators`
-                : collection.owner.displayName}
-              {' · '}
-              {collection.experienceCount} {collection.experienceCount === 1 ? 'spot' : 'spots'}
-            </BodySmall>
+
+            <View style={styles.metaRow}>
+              <View style={styles.avatarStack}>
+                <ContributorAvatar person={collection.owner} />
+                {collection.collaborators.slice(0, 2).map((collaborator) => (
+                  <ContributorAvatar key={collaborator.id} person={collaborator} />
+                ))}
+              </View>
+
+              {collection.isCollaborative ? (
+                <Icon icon={Users} size="xs" color={theme.colors.text.tertiary} />
+              ) : null}
+              <BodySmall color={theme.colors.text.tertiary} numberOfLines={1} style={styles.metaText}>
+                {collection.isCollaborative
+                  ? `${collection.collaborators.length + 1} curators`
+                  : collection.owner.displayName}
+                {' · '}
+                {collection.experienceCount} {collection.experienceCount === 1 ? 'spot' : 'spots'}
+              </BodySmall>
+            </View>
           </View>
         </View>
       </Card>
@@ -142,10 +189,18 @@ export const CollectionCard = React.memo(function CollectionCard({
   );
 });
 
+const SAVE_BUTTON_DIAMETER = 36;
+
 const styles = StyleSheet.create({
   card: {
-    overflow: 'hidden',
+    // No overflow: 'hidden' here — see this file's module doc ("Bug fix
+    // (this pass)"). The shadow from Card's `variant="elevated"` lives
+    // on this View; rounded-corner clipping moves to `cardInner` below.
     width: '100%',
+  },
+  cardInner: {
+    borderRadius: theme.radius.card,
+    overflow: 'hidden',
   },
   imageWrapper: {
     width: '100%',
@@ -159,6 +214,22 @@ const styles = StyleSheet.create({
   imageFallback: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  saveButton: {
+    position: 'absolute',
+    top: theme.spacing.sm,
+    right: theme.spacing.sm,
+    width: SAVE_BUTTON_DIAMETER,
+    height: SAVE_BUTTON_DIAMETER,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  saveButtonScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: theme.colors.static.black,
+    opacity: theme.opacity.heavy,
   },
   body: {
     padding: theme.spacing.md,

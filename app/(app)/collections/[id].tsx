@@ -42,19 +42,33 @@
  * decision shouldn't be introduced silently inside an unrelated sprint).
  * Move Up/Down is also more accessible by construction — no gesture a
  * screen reader has to simulate.
+ *
+ * ── Save (Sprint 5 Prompt 4) ──
+ * A Save/Unsave button sits just below CollectionDetailHeader, visible to
+ * every signed-in viewer regardless of `canManage` — Saved's requirement
+ * #1 ("Users May Save: Their own content, Other users' public content")
+ * applies here independently of ownership. Uses useIsCollectionSaved() +
+ * useToggleSaveCollection() (src/hooks/useSaved.ts) — the exact same
+ * mutation CollectionCard's own bookmark button uses, so unsaving from
+ * either place invalidates the same caches.
  */
 
 import React, { useCallback, useState } from 'react';
 import { View, FlatList, Pressable, Alert, RefreshControl, StyleSheet } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, MoreVertical, WifiOff, AlertCircle, SearchX, Images } from 'lucide-react-native';
+import {
+  ArrowLeft, MoreVertical, WifiOff, AlertCircle, SearchX, Images, Bookmark, BookmarkCheck,
+  Plus, Pencil, ImagePlus, Trash2, Users, ArrowUp, ArrowDown,
+} from 'lucide-react-native';
 
 import { theme } from '@/theme';
 import { EmptyState, ScreenContainer, OfflineBanner, Spinner, Caption, Body, Chip, Button } from '@/components/ui';
+import { showActionSheet, type ActionSheetOption } from '@/stores/actionSheetStore';
 import { ExperienceCard, ExperienceFeedSkeleton } from '@/components/discover';
 import { CollectionDetailHeader, type CollectionEditDraft } from '@/components/collections';
 import { useAuthState } from '@/hooks/useAuth';
 import { useNetworkStatus } from '@/hooks';
+import { useIsCollectionSaved, useToggleSaveCollection } from '@/hooks/useSaved';
 import {
   useCollectionDetailPage,
   useUpdateCollection,
@@ -102,6 +116,13 @@ export default function CollectionDetailScreen() {
   const pendingInvitation = myInvitations.find((invitation) => invitation.collectionId === id);
   const acceptInvitation = useAcceptInvitation();
   const declineInvitation = useDeclineInvitation();
+
+  // Sprint 5 Prompt 4 — called with the route's `id` (see this file's own
+  // module doc, "Save") rather than `collection.collection.id`, so it
+  // stays above the isLoading/not-found early returns below, per the
+  // Rules of Hooks.
+  const isCollectionSaved = useIsCollectionSaved(id);
+  const toggleSaveCollection = useToggleSaveCollection();
 
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<CollectionEditDraft>({ title: '', description: '' });
@@ -181,28 +202,35 @@ export default function CollectionDetailScreen() {
     if (!collection.collection) return;
     const current = collection.collection;
 
-    const options: Parameters<typeof Alert.alert>[2] = [
-      { text: 'Add Experience', onPress: () => router.push(MODAL_ROUTES.collectionAddExperience(current.id) as never) },
-      { text: 'Rename & Edit Description', onPress: beginEditing },
-      { text: current.coverType === 'custom' ? 'Replace Cover' : 'Add Custom Cover', onPress: handleChangeCover },
+    const options: ActionSheetOption[] = [
+      {
+        label: 'Add Experience',
+        icon: Plus,
+        onPress: () => router.push(MODAL_ROUTES.collectionAddExperience(current.id) as never),
+      },
+      { label: 'Rename & Edit Description', icon: Pencil, onPress: beginEditing },
+      {
+        label: current.coverType === 'custom' ? 'Replace Cover' : 'Add Custom Cover',
+        icon: ImagePlus,
+        onPress: handleChangeCover,
+      },
     ];
 
     if (current.coverType === 'custom') {
-      options.push({ text: 'Remove Custom Cover', onPress: handleRemoveCover });
+      options.push({ label: 'Remove Custom Cover', icon: Trash2, onPress: handleRemoveCover });
     }
 
     options.push({
-      text: 'Manage Collaborators',
+      label: 'Manage Collaborators',
+      icon: Users,
       onPress: () => router.push(MODAL_ROUTES.collectionCollaborators(current.id) as never),
     });
 
     if (isOwner) {
-      options.push({ text: 'Delete Collection', style: 'destructive', onPress: handleDelete });
+      options.push({ label: 'Delete Collection', icon: Trash2, destructive: true, onPress: handleDelete });
     }
 
-    options.push({ text: 'Cancel', style: 'cancel' });
-
-    Alert.alert('Manage Collection', undefined, options);
+    showActionSheet({ title: 'Manage Collection', options });
   }, [collection.collection, isOwner, beginEditing, handleChangeCover, handleRemoveCover, handleDelete]);
 
   const handleMoveExperience = useCallback(
@@ -229,24 +257,26 @@ export default function CollectionDetailScreen() {
       if (!canManage) return;
       const index = experiences.experiences.findIndex((e) => e.id === experience.id);
 
-      const options: Parameters<typeof Alert.alert>[2] = [];
-      if (index > 0) options.push({ text: 'Move Up', onPress: () => handleMoveExperience(experience.id, 'up') });
+      const options: ActionSheetOption[] = [];
+      if (index > 0) {
+        options.push({ label: 'Move Up', icon: ArrowUp, onPress: () => handleMoveExperience(experience.id, 'up') });
+      }
       if (index < experiences.experiences.length - 1) {
-        options.push({ text: 'Move Down', onPress: () => handleMoveExperience(experience.id, 'down') });
+        options.push({ label: 'Move Down', icon: ArrowDown, onPress: () => handleMoveExperience(experience.id, 'down') });
       }
       if (canRemoveExperience(experience)) {
         options.push({
-          text: 'Remove from Collection',
-          style: 'destructive',
+          label: 'Remove from Collection',
+          icon: Trash2,
+          destructive: true,
           onPress: () => {
             if (!collection.collection) return;
             removeExperience.mutate({ collectionId: collection.collection.id, experienceId: experience.id });
           },
         });
       }
-      options.push({ text: 'Cancel', style: 'cancel' });
 
-      Alert.alert(experience.title, undefined, options);
+      showActionSheet({ title: experience.title, options });
     },
     [canManage, canRemoveExperience, experiences.experiences, handleMoveExperience, collection.collection, removeExperience],
   );
@@ -328,6 +358,22 @@ export default function CollectionDetailScreen() {
         collection={collectionModel}
         editing={isEditing ? { draft, onChangeDraft: setDraft } : undefined}
       />
+
+      {!isEditing ? (
+        <View style={styles.saveRow}>
+          <Button
+            label={isCollectionSaved ? 'Saved' : 'Save Collection'}
+            leftIcon={isCollectionSaved ? BookmarkCheck : Bookmark}
+            variant="tertiary"
+            size="sm"
+            loading={toggleSaveCollection.isPending}
+            onPress={() =>
+              toggleSaveCollection.mutate({ collectionId: collectionModel.id, isSaved: isCollectionSaved })
+            }
+            style={styles.saveButton}
+          />
+        </View>
+      ) : null}
 
       {pendingInvitation ? (
         <View style={styles.invitationBanner}>
@@ -519,6 +565,13 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     paddingHorizontal: theme.layout.screenPaddingHorizontal,
     marginTop: theme.spacing.sm,
+  },
+  saveRow: {
+    paddingHorizontal: theme.layout.screenPaddingHorizontal,
+    marginTop: theme.spacing.sm,
+  },
+  saveButton: {
+    alignSelf: 'flex-start',
   },
   invitationBanner: {
     marginHorizontal: theme.layout.screenPaddingHorizontal,

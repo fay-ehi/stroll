@@ -23,6 +23,15 @@
  * Experience Details + related/recommended) — rather than persisting
  * every query in the app indiscriminately. Profile, places, and anything
  * added later stay in-memory-only until a requirement asks for them too.
+ *
+ * Sprint 5 Prompt 4 addition — the `saved` query family (saved ids,
+ * saved Experiences/Collections pages) now persists too, for this
+ * sprint's own requirement #9 (Offline Behaviour): "Allow users to: View
+ * previously synchronized saved items" while offline. In-memory caching
+ * alone (the default for every TanStack Query key) already covers that
+ * within a single running session; what persistence adds is surviving an
+ * app restart while offline, the same gap this file's own module doc
+ * already identified for `experiences`.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,5 +54,5 @@ export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export function shouldPersistQuery(query: Query): boolean {
   const [rootKey] = query.queryKey;
-  return rootKey === 'experiences' && query.state.status === 'success';
+  return (rootKey === 'experiences' || rootKey === 'saved') && query.state.status === 'success';
 }

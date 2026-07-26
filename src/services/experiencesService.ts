@@ -100,6 +100,36 @@ export async function fetchFeaturedExperiences(params?: {
   }
 }
 
+// ─── Fetch Experiences By Ids (Sprint 5 Prompt 4 — Saved) ───────────────────────
+// Backs getSavedExperiences() in src/services/savedService.ts. This file
+// remains "the ONLY file that talks to the `experiences` /
+// `experience_photos` tables directly" (see module doc) — savedService.ts
+// owns the polymorphic `saved_items` table and asks this function for the
+// Experience rows it needs to hydrate a Saved page, rather than querying
+// `experiences` itself.
+//
+// Unordered by design — the caller (savedService.ts) already knows the
+// order it wants (the order the items were saved in) and re-sorts this
+// function's result to match, since `.in()` doesn't guarantee row order.
+// Any id with no matching row (a deleted Experience) is simply absent
+// from the result rather than erroring — the same "malformed/missing row
+// gets filtered out, not thrown on" convention this file's mappers
+// already use elsewhere.
+export async function fetchExperiencesByIds(
+  ids: string[],
+): Promise<ExperiencesResult<ExperienceFeedRow[]>> {
+  try {
+    if (ids.length === 0) return ok([]);
+
+    const { data, error } = await supabase.from('experiences').select(SELECT_COLUMNS).in('id', ids);
+    if (error) return fail(error);
+
+    return ok((data as unknown as ExperienceFeedRow[]) ?? []);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ─── Cursors ────────────────────────────────────────────────────────────────────
 
 interface NewestCursor {

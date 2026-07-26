@@ -19,6 +19,7 @@ import { STROLL_FONTS } from '@/theme/fonts';
 import { theme } from '@/theme';
 import { ErrorBoundary } from '@/components/shell/ErrorBoundary';
 import { ToastProvider } from '@/components/toast/ToastProvider';
+import { ActionSheetProvider } from '@/components/actionSheet/ActionSheetProvider';
 import { AuthProvider } from '@/components/shell/AuthProvider';
 import { TIMEOUTS } from '@/constants/app';
 // Sprint 1 Prompt 3 fix: this file previously constructed its own local
@@ -67,30 +68,32 @@ export default function RootLayout() {
         >
           <SafeAreaProvider>
             <ToastProvider>
-              <AuthProvider>
-                <StatusBar
-                  barStyle="dark-content"
-                  backgroundColor={theme.colors.neutral.background}
-                  translucent={Platform.OS === 'android'}
-                />
-                <View style={{ flex: 1, backgroundColor: theme.colors.neutral.background }}>
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      contentStyle: {
-                        backgroundColor: theme.colors.neutral.background,
-                      },
-                      animation: Platform.OS === 'android' ? 'fade' : 'default',
-                    }}
-                  >
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="(auth)" />
-                    <Stack.Screen name="(app)" />
-                    <Stack.Screen name="(onboarding)" />
-                    <Stack.Screen name="(modals)" options={{ presentation: 'modal' }} />
-                  </Stack>
-                </View>
-              </AuthProvider>
+              <ActionSheetProvider>
+                <AuthProvider>
+                  <StatusBar
+                    barStyle="dark-content"
+                    backgroundColor={theme.colors.neutral.background}
+                    translucent={Platform.OS === 'android'}
+                  />
+                  <View style={{ flex: 1, backgroundColor: theme.colors.neutral.background }}>
+                    <Stack
+                      screenOptions={{
+                        headerShown: false,
+                        contentStyle: {
+                          backgroundColor: theme.colors.neutral.background,
+                        },
+                        animation: Platform.OS === 'android' ? 'fade' : 'default',
+                      }}
+                    >
+                      <Stack.Screen name="index" />
+                      <Stack.Screen name="(auth)" />
+                      <Stack.Screen name="(app)" />
+                      <Stack.Screen name="(onboarding)" />
+                      <Stack.Screen name="(modals)" options={{ presentation: 'modal' }} />
+                    </Stack>
+                  </View>
+                </AuthProvider>
+              </ActionSheetProvider>
             </ToastProvider>
           </SafeAreaProvider>
         </PersistQueryClientProvider>

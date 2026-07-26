@@ -325,6 +325,96 @@ export interface Database {
         };
         Relationships: [];
       };
+      // Sprint 5 Prompt 4 addition — concrete `saved_items` entry. Same
+      // reasoning as `collections`/`collection_items` above: written as
+      // an inline object literal (never `interface`), so it keeps
+      // satisfying the `[key: string]` fallback below. See
+      // supabase/migrations/sprint5_prompt4_saved.sql for the schema
+      // this mirrors, and src/services/savedService.ts for the only file
+      // that queries this table directly.
+      saved_items: {
+        Row: {
+          id: string;
+          user_id: string;
+          item_id: string;
+          item_type: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          item_id: string;
+          item_type: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          item_id?: string;
+          item_type?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      // Sprint 6 Prompt 1 addition — concrete `follows` entry. Same
+      // reasoning as `saved_items` above: written as an inline object
+      // literal (never `interface`), so it keeps satisfying the
+      // `[key: string]` fallback below. See
+      // supabase/migrations/sprint6_prompt1_follows.sql for the schema
+      // this mirrors, and src/services/followsService.ts for the only
+      // file that queries this table directly.
+      follows: {
+        Row: {
+          id: string;
+          follower_id: string;
+          following_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          follower_id: string;
+          following_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          follower_id?: string;
+          following_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      // Sprint 6 Prompt 2 addition — concrete `likes` entry. Same
+      // reasoning as `saved_items`/`follows` above: written as an inline
+      // object literal (never `interface`), so it keeps satisfying the
+      // `[key: string]` fallback below. See
+      // supabase/migrations/sprint6_prompt2_likes.sql for the schema
+      // this mirrors (that migration names the table `likes`, not
+      // `experience_likes` as the prompt doc's own Schema section says —
+      // see this sprint's End-of-Task Report for that discrepancy), and
+      // src/services/likesService.ts for the only file that queries this
+      // table directly.
+      likes: {
+        Row: {
+          id: string;
+          user_id: string;
+          experience_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          experience_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          experience_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       // Every other/future table falls back to this generic shape until
       // it's given a concrete entry (or the whole file is regenerated).
       [key: string]: {

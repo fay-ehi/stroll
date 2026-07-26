@@ -26,9 +26,15 @@ export { CategoriesRowSkeleton } from './CategoriesRowSkeleton';
 export { DiscoverTopBar, type DiscoverTopBarProps } from './DiscoverTopBar';
 export { DiscoverTabs, type DiscoverTabsProps, type DiscoverFeedTab } from './DiscoverTabs';
 export { SwipeableTabs, type SwipeableTabsProps } from './SwipeableTabs';
+export {
+  SwipeUnderlineTabs,
+  type SwipeUnderlineTabsProps,
+  type SwipeUnderlineTab,
+} from './SwipeUnderlineTabs';
 export { ForYouFeed, type ForYouFeedProps } from './ForYouFeed';
 export { FollowingFeed, type FollowingFeedProps } from './FollowingFeed';
 export { CollectionCard, type CollectionCardProps } from './CollectionCard';
+export { CollectionCardSkeleton, type CollectionCardSkeletonProps } from './CollectionCardSkeleton';
 export { CollectionCarousel, type CollectionCarouselProps } from './CollectionCarousel';
 export { NearbyExperienceCard, type NearbyExperienceCardProps } from './NearbyExperienceCard';
 export { LocationPermissionCard, type LocationPermissionCardProps } from './LocationPermissionCard';

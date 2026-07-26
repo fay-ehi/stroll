@@ -24,6 +24,10 @@ import type { ExperienceCardVariant } from './ExperienceCard';
 const COVER_HEIGHT: Record<ExperienceCardVariant, number> = {
   standard: 220,
   featured: 200,
+  // Matches ExperienceCard's own COVER_ASPECT_RATIO.compact (same 4:3 as
+  // 'standard') at the Saved tab's typical 2-column cell width — a
+  // fixed height here just needs to roughly track that, not be exact.
+  compact: 140,
 };
 
 export interface ExperienceCardSkeletonProps {
@@ -35,6 +39,8 @@ export function ExperienceCardSkeleton({
   variant = 'standard',
   width,
 }: ExperienceCardSkeletonProps) {
+  const isCompact = variant === 'compact';
+
   return (
     <View style={{ width }}>
       <Card variant="elevated" padding={0} style={styles.card}>
@@ -42,8 +48,15 @@ export function ExperienceCardSkeleton({
         <View style={styles.content}>
           <SkeletonText width="40%" />
           <SkeletonText width="70%" />
-          <SkeletonText width="90%" />
-          <SkeletonText width="55%" />
+          {/* 'compact' drops the two story-preview lines here, matching
+              ExperienceCard's own compact layout — see that component's
+              doc for why. */}
+          {isCompact ? null : (
+            <>
+              <SkeletonText width="90%" />
+              <SkeletonText width="55%" />
+            </>
+          )}
           <View style={styles.creatorRow}>
             <SkeletonCircle diameter={32} />
             <SkeletonText width="35%" />

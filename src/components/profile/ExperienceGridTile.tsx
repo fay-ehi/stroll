@@ -12,10 +12,13 @@
  * which also renders other people's experiences on Discover.
  *
  * Tap the tile → Experience Details (view — requirement #1). Long-press
- * the tile → Edit / Add to Collection / Delete, via Alert.alert — the
- * same lightweight action-sheet pattern this screen's own
- * handleAvatarPress already uses (app/(app)/(tabs)/profile.tsx).
- * Replaces an earlier corner "⋮" button per product direction (cleaner
+ * the tile → Edit / Add to Collection / Delete, via the themed
+ * `showActionSheet` (src/stores/actionSheetStore.ts) — the same
+ * lightweight action-sheet pattern this screen's own
+ * handleAvatarPress already uses (app/(app)/(tabs)/profile.tsx). Delete
+ * still confirms through a plain `Alert.alert` yes/no dialog, same as
+ * every other destructive confirmation in the app. Replaces an earlier
+ * corner "⋮" button per product direction (cleaner
  * tile, no icon sitting on top of the photo). A screen reader has no
  * built-in gesture for "long press", so the same handler is also
  * exposed as a custom accessibilityAction ("Manage") on the tile —
@@ -36,6 +39,11 @@
  * Directions, Report) are scoped as "Only" those four; extending it is
  * a different sprint's call to make.
  *
+ * Sprint 5 Prompt 4 briefly added a Save/Unsave entry here, then
+ * removed it by product direction — saving one's own content from this
+ * grid isn't a flow this tile should offer; Save lives on Experience
+ * Detail (ExperienceActionBar) and the Saved tab's own grid instead.
+ *
  * React.memo'd per requirement #11 ("Memoized Experience Cards") — this
  * grid can be dozens of cells long once pagination kicks in, and no tile
  * needs to re-render when a sibling's local state (or the header above
@@ -45,10 +53,11 @@
 import React, { memo, useCallback } from 'react';
 import { View, Pressable, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
-import { ImageOff } from 'lucide-react-native';
+import { ImageOff, Pencil, FolderPlus, Trash2 } from 'lucide-react-native';
 
 import { Icon } from '@/components/ui';
 import { theme } from '@/theme';
+import { showActionSheet, type ActionSheetOption } from '@/stores/actionSheetStore';
 import type { ExperienceCardModel } from '@/types/experience';
 
 export interface ExperienceGridTileProps {
@@ -69,38 +78,37 @@ function ExperienceGridTileComponent({
   onDelete,
   onAddToCollection,
 }: ExperienceGridTileProps) {
-  // Two-step: long-pressing the tile opens Edit/Add to Collection/Delete;
-  // Delete itself opens a second, explicit confirmation — requirement
-  // #5's (Sprint 3 Prompt 3) "Confirmation dialog" for Delete
-  // specifically, on top of (not instead of) the first action-sheet tap.
+  // Two-step: long-pressing the tile opens Edit/Add to Collection/
+  // Delete; Delete itself opens a second, explicit confirmation —
+  // requirement #5's (Sprint 3 Prompt 3) "Confirmation dialog" for
+  // Delete specifically, on top of (not instead of) the first
+  // action-sheet tap.
   const handleManagePress = useCallback(() => {
-    const options: Parameters<typeof Alert.alert>[2] = [
-      { text: 'Edit', onPress: () => onEdit(experience) },
+    const options: ActionSheetOption[] = [
+      { label: 'Edit', icon: Pencil, onPress: () => onEdit(experience) },
     ];
 
     if (onAddToCollection) {
-      options.push({ text: 'Add to Collection', onPress: () => onAddToCollection(experience) });
+      options.push({ label: 'Add to Collection', icon: FolderPlus, onPress: () => onAddToCollection(experience) });
     }
 
-    options.push(
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          Alert.alert(
-            'Delete this experience?',
-            "This removes it from Discover and your profile permanently. This can\u2019t be undone.",
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: () => onDelete(experience) },
-            ],
-          );
-        },
+    options.push({
+      label: 'Delete',
+      icon: Trash2,
+      destructive: true,
+      onPress: () => {
+        Alert.alert(
+          'Delete this experience?',
+          "This removes it from Discover and your profile permanently. This can\u2019t be undone.",
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => onDelete(experience) },
+          ],
+        );
       },
-      { text: 'Cancel', style: 'cancel' },
-    );
+    });
 
-    Alert.alert(experience.title || 'Manage experience', undefined, options);
+    showActionSheet({ title: experience.title || 'Manage experience', options });
   }, [experience, onEdit, onAddToCollection, onDelete]);
 
   return (

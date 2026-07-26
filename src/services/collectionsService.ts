@@ -182,6 +182,37 @@ export async function getCollection(id: string): Promise<CollectionsResult<Colle
   }
 }
 
+// ─── Get Collections By Ids (Sprint 5 Prompt 4 — Saved) ─────────────────────────
+// Backs getSavedCollections() in src/services/savedService.ts. This file
+// remains "the ONLY file that talks to the `collections` /
+// `collection_items` tables ... directly" (see module doc) —
+// savedService.ts owns the polymorphic `saved_items` table and asks this
+// function for the Collection rows it needs to hydrate a Saved page,
+// rather than querying `collections` itself.
+//
+// Unordered by design, same reasoning as experiencesService.ts's sibling
+// fetchExperiencesByIds() — the caller re-sorts to match the order items
+// were saved in, and an id with no matching row (a deleted Collection)
+// is simply absent from the result. Does NOT filter on
+// `visibility = 'public'` the way fetchPublicCollectionsFeed() does —
+// requirement #1's "Users May Save: Their own content, Other users'
+// public content" already means every Collection reachable to be saved
+// was public at save time; every Collection is public today regardless
+// (see this file's own ADR note), so there is nothing to additionally
+// filter here.
+export async function getCollectionsByIds(ids: string[]): Promise<CollectionsResult<CollectionFeedRow[]>> {
+  try {
+    if (ids.length === 0) return ok([]);
+
+    const { data, error } = await supabase.from('collections').select(COLLECTION_SELECT_COLUMNS).in('id', ids);
+    if (error) return failCollections(error);
+
+    return ok(await attachCollaboratorsToRows((data as unknown as RawCollectionRow[]) ?? []));
+  } catch (err) {
+    return failCollections(err);
+  }
+}
+
 // ─── Get Public Collections Feed (Sprint 5 Prompt 3) ────────────────────────────
 // Backs the Discover carousel (requirement #1) via useCollectionsCarousel.ts,
 // and is the same query a future "All Collections" directory screen would

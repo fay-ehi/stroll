@@ -45,7 +45,8 @@
 import React, { useCallback, useMemo } from 'react';
 import { View, Pressable, FlatList, StyleSheet, Alert, RefreshControl, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
-import { Camera, BadgeCheck, WifiOff, AlertCircle, Pencil, Compass } from 'lucide-react-native';
+import { Camera, BadgeCheck, WifiOff, AlertCircle, Pencil, Compass, ImagePlus, Trash2 } from 'lucide-react-native';
+import { showActionSheet } from '@/stores/actionSheetStore';
 
 import {
   ScreenContainer, H2, H4, Body, Caption,
@@ -308,22 +309,22 @@ export default function ProfileScreen() {
   const handleAvatarPress = () => {
     if (isUploading || isOffline) return;
 
-    const options = profile.avatarUrl
-      ? [
-          { text: 'Change Photo', onPress: () => { void pickAndUpload(); } },
-          {
-            text: 'Remove Photo',
-            style: 'destructive' as const,
-            onPress: () => removeAvatarMutation.mutate(profile.avatarUrl),
-          },
-          { text: 'Cancel', style: 'cancel' as const },
-        ]
-      : [
-          { text: 'Choose Photo', onPress: () => { void pickAndUpload(); } },
-          { text: 'Cancel', style: 'cancel' as const },
-        ];
-
-    Alert.alert('Profile Photo', undefined, options);
+    showActionSheet({
+      title: 'Profile Photo',
+      options: profile.avatarUrl
+        ? [
+            { label: 'Change Photo', icon: ImagePlus, onPress: () => { void pickAndUpload(); } },
+            {
+              label: 'Remove Photo',
+              icon: Trash2,
+              destructive: true,
+              onPress: () => removeAvatarMutation.mutate(profile.avatarUrl),
+            },
+          ]
+        : [
+            { label: 'Choose Photo', icon: ImagePlus, onPress: () => { void pickAndUpload(); } },
+          ],
+    });
   };
 
   const handleStartEditing = () => {

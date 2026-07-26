@@ -211,7 +211,21 @@ export async function uploadAvatar(
       .from(IMAGE_CONFIG.AVATAR_BUCKET)
       .getPublicUrl(filePath);
 
-    return ok(data.publicUrl);
+    // Bug fix: `filePath` is deterministic (userId + extension), so
+    // replacing an existing avatar re-uploads to the SAME storage path
+    // and Supabase returns the exact same public URL string as before.
+    // `avatar_url` in the profile row and in every cached query result
+    // then never changes — and React Native's <Image> caches by URI, so
+    // nothing re-fetches the new file. (Removing the avatar first works
+    // "by accident" only because it briefly sets avatar_url to null,
+    // forcing components to actually swap sources.) A cache-busting query
+    // param makes the stored URL change on every upload, which both
+    // invalidates the Image cache and gives React a genuinely new prop
+    // value to re-render on. `extractStoragePath` below strips this
+    // param back off before using the URL to address the storage object.
+    const cacheBustedUrl = `${data.publicUrl}?updated=${Date.now()}`;
+
+    return ok(cacheBustedUrl);
   } catch (err) {
     return fail(err);
   }
@@ -347,5 +361,10 @@ function extractStoragePath(publicUrl: string): string | null {
   const marker = `/${IMAGE_CONFIG.AVATAR_BUCKET}/`;
   const idx = publicUrl.indexOf(marker);
   if (idx === -1) return null;
-  return publicUrl.slice(idx + marker.length);
+  // uploadAvatar() appends a `?updated=<timestamp>` cache-busting param —
+  // strip it (and any other query string) so this resolves to the real
+  // storage object path, not a path with a trailing "?updated=..." that
+  // wouldn't match anything and would silently no-op the delete.
+  const withoutQuery = publicUrl.split('?')[0]!;
+  return withoutQuery.slice(idx + marker.length);
 }

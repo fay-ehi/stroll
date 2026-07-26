@@ -36,16 +36,19 @@ export type AnalyticsEventName =
   | 'experience_updated'
   | 'experience_deleted'
   | 'place_viewed'
-  | 'nearby_experience_surfaced';
+  | 'nearby_experience_surfaced'
+  | 'experience_liked'
+  | 'experience_unliked';
 
 export interface AnalyticsEventProperties {
   experience_opened: {
     experienceId: string;
-    // Sprint 5 Prompt 1 added 'collection_detail' — a Collection Detail
-    // screen's Experience list is a new ExperienceCard-rendering surface
-    // (see ExperienceCardSource in ExperienceCard.tsx, this file's own
-    // source of truth for the full list of surfaces).
-    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail' | 'nearby_surfaced' | 'collection_detail';
+    // Sprint 5 Prompt 1 added 'collection_detail'; Sprint 5 Prompt 4 added
+    // 'saved'; Sprint 6 Prompt 1 added 'public_profile' — each is a new
+    // ExperienceCard-rendering surface (see ExperienceCardSource in
+    // ExperienceCard.tsx, this file's own source of truth for the full
+    // list of surfaces).
+    source: 'discover_feed' | 'related' | 'continue_exploring' | 'place_detail' | 'nearby_surfaced' | 'collection_detail' | 'saved' | 'public_profile';
   };
   /** Not fired anywhere in Discover as of this sprint — category selection lives in Search now (see CategoriesRow's doc). Defined and ready for Search to call. */
   category_selected: { categoryId: string };
@@ -69,7 +72,41 @@ export interface AnalyticsEventProperties {
   place_viewed: { placeId: string };
   /** Impression event — fired when a NearbyExperienceCard mounts into the Discover feed (Sprint 4 Prompt 2). The tap-through counterpart is trackExperienceOpened with source: 'nearby_surfaced', not a separate event. */
   nearby_experience_surfaced: { experienceId: string; placeId: string; distanceKm: number };
+  /**
+   * Sprint 6 Prompt 2 — fired on a successful Like/Unlike (see
+   * useLikes.ts's useLike() onSuccess; never on a failed attempt, same
+   * "count successes, not retries" reasoning as experience_published).
+   * `source` reuses ExperienceCard's own source union (see
+   * ExperienceCardSource in ExperienceCard.tsx) — requirement #11's
+   * "Reuse the existing ExperienceCard source architecture" — plus
+   * 'experience_detail' for the one Like surface that isn't an
+   * ExperienceCard at all (the Detail screen's own engagement row).
+   */
+  experience_liked: { experienceId: string; creatorId: string; source: LikeSource };
+  experience_unliked: { experienceId: string; creatorId: string; source: LikeSource };
 }
+
+/**
+ * Sprint 6 Prompt 2 — every surface a Like/Unlike can be fired from.
+ * Mirrors ExperienceCardSource (ExperienceCard.tsx) exactly, plus
+ * 'experience_detail' for the Detail screen's own engagement row, which
+ * renders no ExperienceCard at all. Kept as its own named type (not a
+ * re-export of ExperienceCardSource) so this file — otherwise dependency-
+ * free within `lib/` — doesn't need to import from the components layer
+ * just for a union of string literals; the two are kept in sync by hand,
+ * the same way this file's own module doc already flags for
+ * `experience_opened.source`.
+ */
+export type LikeSource =
+  | 'discover_feed'
+  | 'related'
+  | 'continue_exploring'
+  | 'place_detail'
+  | 'nearby_surfaced'
+  | 'collection_detail'
+  | 'saved'
+  | 'public_profile'
+  | 'experience_detail';
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
 
@@ -154,4 +191,16 @@ export function trackNearbyExperienceSurfaced(
   properties: AnalyticsEventProperties['nearby_experience_surfaced'],
 ): void {
   trackEvent('nearby_experience_surfaced', properties);
+}
+
+export function trackExperienceLiked(
+  properties: AnalyticsEventProperties['experience_liked'],
+): void {
+  trackEvent('experience_liked', properties);
+}
+
+export function trackExperienceUnliked(
+  properties: AnalyticsEventProperties['experience_unliked'],
+): void {
+  trackEvent('experience_unliked', properties);
 }

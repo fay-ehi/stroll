@@ -39,6 +39,7 @@ import { normalizeError, type StrollError, type ErrorCode } from '@/lib/errors';
 import { IMAGE_CONFIG } from '@/constants/app';
 import {
   ensureProfile,
+  getProfile,
   updateProfile,
   uploadAvatar,
   removeAvatar,
@@ -52,6 +53,14 @@ import {
   type ProfileModel,
   type ProfileUpdateInput,
 } from '@/types/profile';
+// Sprint 6 Prompt 1 — usePublicProfilePage composes across these
+// sibling hook files the same way useNearbyExperiences.ts already
+// composes usePlaces.ts's useNearbyPlaces, or useExperienceCreation.ts
+// composes useExperienceDetail.ts — an established cross-file hook
+// composition pattern in this codebase, not a new one.
+import { useUserGallery, type UseUserGalleryResult } from '@/hooks/useUserGallery';
+import { useMyCollections, type UseMyCollectionsResult } from '@/hooks/useCollections';
+import { useFollowCounts } from '@/hooks/useFollows';
 
 // ─── Shared Helpers ────────────────────────────────────────────────────────────
 
@@ -329,4 +338,113 @@ export function useRemoveAvatar() {
 
     onSettled: () => setStage('idle'),
   });
+}
+
+// ─── usePublicProfile (Sprint 6 Prompt 1) ──────────────────────────────────────
+
+export interface UsePublicProfileResult {
+  profile: ProfileModel | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: StrollError | null;
+  refetch: () => void;
+}
+
+/**
+ * Any user's profile by id — the Public Profile screen's own query.
+ * Reuses profileService.getProfile() (already the function
+ * ensureProfile() above calls internally) rather than adding a new
+ * repository method — "fetch a profile by id" was already exactly what
+ * that function does; useProfile() above just always passes the
+ * signed-in user's own id.
+ *
+ * Keyed under queryKeys.users.detail(id) — a key already reserved for
+ * exactly this (see that key's own comment in queryKeys.ts), and
+ * already the key useUpdateProfile()/useUploadAvatar()/
+ * useRemoveAvatar() above invalidate on a successful edit to the
+ * SIGNED-IN user's own profile. So if the person you're viewing through
+ * this hook edits their own profile elsewhere while you're looking at
+ * it, this query is already wired to pick that up.
+ *
+ * Unlike useProfile(), this never creates a profile row on a miss — a
+ * missing profile here means "this user doesn't exist" (surfaced as
+ * NOT_FOUND), not "create one," since the viewer isn't that user.
+ */
+export function usePublicProfile(userId: string | undefined): UsePublicProfileResult {
+  const query = useQuery<ProfileModel, StrollError>({
+    queryKey: queryKeys.users.detail(userId ?? ''),
+    enabled: !!userId,
+    queryFn: async () => {
+      const result = await getProfile(userId!);
+      if (!result.ok) throw result.error;
+      if (!result.data) {
+        throw buildStrollError('NOT_FOUND', `No profile found for user ${userId}.`);
+      }
+      return toProfileModel(result.data);
+    },
+    staleTime: 60_000,
+    retry: (failureCount, error) => error.isRetryable && failureCount < 2,
+  });
+
+  return {
+    profile: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: () => {
+      void query.refetch();
+    },
+  };
+}
+
+// ─── usePublicProfilePage (Sprint 6 Prompt 1) ──────────────────────────────────
+// Screen-level composition for app/(app)/profile/[id].tsx — mirrors the
+// shape useCollectionDetailPage() (useCollections.ts) / useSavedLibrary()
+// (useSaved.ts) already establish: one hook pulling together everything
+// a single screen needs, plus one combined refresh() so a single
+// pull-to-refresh gesture updates all three domains together, even
+// though the underlying data spans three separate hooks that already
+// exist independently elsewhere (a profile record, a paginated
+// Experience gallery, and a Collections list — the exact same three
+// pieces the Profile tab itself already composes inline).
+
+export interface UsePublicProfilePageResult {
+  profile: UsePublicProfileResult;
+  gallery: UseUserGalleryResult;
+  collections: UseMyCollectionsResult;
+  followerCount: number;
+  followingCount: number;
+  refresh: () => Promise<void>;
+  isRefreshing: boolean;
+}
+
+export function usePublicProfilePage(userId: string | undefined): UsePublicProfilePageResult {
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const profile = usePublicProfile(userId);
+  const gallery = useUserGallery(profile.profile?.id);
+  const collections = useMyCollections(profile.profile?.id);
+  const { followerCount, followingCount } = useFollowCounts(profile.profile?.id);
+
+  const refresh = useCallback(async () => {
+    const id = profile.profile?.id;
+    if (!id) return;
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: queryKeys.users.detail(id), type: 'active' }),
+        queryClient.refetchQueries({ queryKey: queryKeys.experiences.byUser(id), type: 'active' }),
+        queryClient.refetchQueries({ queryKey: queryKeys.collections.byUser(id), type: 'active' }),
+        queryClient.refetchQueries({
+          queryKey: [...queryKeys.users.followers(id), 'counts'],
+          type: 'active',
+        }),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [profile.profile?.id, queryClient]);
+
+  return { profile, gallery, collections, followerCount, followingCount, refresh, isRefreshing };
 }

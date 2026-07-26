@@ -22,6 +22,12 @@
  * interactive maps, search, notifications, settings, sharing, reporting.
  * Save/Share/Directions/Report in the action bar are real, tappable
  * placeholders (see ExperienceActionBar's doc) — not fake-disabled UI.
+ *
+ * Sprint 5 Prompt 4 — Save is no longer a placeholder. `isSaved`/
+ * `isSaving`/`onSave` below are wired to useIsExperienceSaved() /
+ * useToggleSaveExperience() (src/hooks/useSaved.ts); Share/Directions/
+ * Report are untouched and still fall back to ExperienceActionBar's own
+ * placeholder toasts.
  */
 
 import React from 'react';
@@ -43,7 +49,8 @@ import {
 } from '@/components/experience-detail';
 import { useExperienceDetailPage } from '@/hooks/useExperienceDetail';
 import { useNetworkStatus } from '@/hooks';
-import { showToast } from '@/stores/toastStore';
+import { useIsExperienceSaved, useToggleSaveExperience } from '@/hooks/useSaved';
+import { ROUTES } from '@/constants/routes';
 
 function BackButton() {
   return (
@@ -73,9 +80,16 @@ export default function ExperienceDetailScreen() {
 
   const { detail, related } = useExperienceDetailPage(id);
 
-  const handleCreatorPress = () => {
-    showToast({ type: 'info', message: 'Profile pages are coming soon.' });
-  };
+  // Sprint 5 Prompt 4 — called with the route's `id` (not
+  // `detail.experience.id`) specifically so this stays above the
+  // isLoading/not-found early returns below, per the Rules of Hooks; it
+  // resolves to the same experience once `detail.experience` exists.
+  const isSaved = useIsExperienceSaved(id);
+  const toggleSave = useToggleSaveExperience();
+
+  // handleCreatorPress is defined further below, right alongside `const
+  // experience = detail.experience;` — see that section's own comment
+  // for why (Sprint 6 Prompt 1).
 
   // ── Initial loading ──────────────────────────────────────────────────────────
   if (detail.isLoading) {
@@ -151,6 +165,14 @@ export default function ExperienceDetailScreen() {
 
   const experience = detail.experience;
 
+  // Sprint 6 Prompt 1 — defined here (not above, alongside the other
+  // handlers) specifically so it can close over the narrowed, non-null
+  // `experience` const rather than the still-nullable `detail.experience`
+  // — see the placeholder comment above the loading/error returns for why.
+  const handleCreatorPress = () => {
+    router.push(ROUTES.app.otherUserProfile(experience.creator.id) as never);
+  };
+
   return (
     <ScreenContainer scroll={false} padded={false}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -169,7 +191,11 @@ export default function ExperienceDetailScreen() {
         </View>
       </ScrollView>
 
-      <ExperienceActionBar />
+      <ExperienceActionBar
+        isSaved={isSaved}
+        isSaving={toggleSave.isPending}
+        onSave={() => toggleSave.mutate({ experienceId: experience.id, isSaved })}
+      />
       <BackButton />
     </ScreenContainer>
   );

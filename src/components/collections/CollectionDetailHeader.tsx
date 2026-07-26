@@ -24,17 +24,25 @@
  * an optional "Updated <time ago>" Caption renders beneath the
  * owner/contributors row whenever `updatedAt` has actually diverged
  * from `createdAt` — see `showLastUpdated` below.
+ *
+ * Sprint 6 Prompt 1: the single-owner "Curated by X" row is now a
+ * Pressable navigating to that owner's Public Profile
+ * (ROUTES.app.otherUserProfile) — the collaborative-Collection case
+ * needed no change here, since ContributorsLine.tsx already made each
+ * of its own names its own nested Pressable doing the same navigation.
  */
 
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Images } from 'lucide-react-native';
+import { router } from 'expo-router';
 
 import { theme } from '@/theme';
 import { H2, Body, Caption, Avatar, Icon, TextInput } from '@/components/ui';
 import { ContributorsLine } from './ContributorsLine';
 import { COLLECTION_LIMITS } from '@/constants/app';
+import { ROUTES } from '@/constants/routes';
 import { timeAgo } from '@/utils';
 import type { CollectionModel } from '@/types/collection';
 
@@ -130,7 +138,12 @@ export function CollectionDetailHeader({ collection, editing }: CollectionDetail
             />
           </View>
         ) : (
-          <View style={styles.metaRow}>
+          <Pressable
+            style={styles.metaRow}
+            onPress={() => router.push(ROUTES.app.otherUserProfile(collection.owner.id) as never)}
+            accessibilityRole="link"
+            accessibilityLabel={`View ${collection.owner.displayName}'s profile`}
+          >
             <Avatar
               source={collection.owner.avatarUrl ? { uri: collection.owner.avatarUrl } : undefined}
               name={collection.owner.displayName}
@@ -139,7 +152,7 @@ export function CollectionDetailHeader({ collection, editing }: CollectionDetail
             <Caption color={theme.colors.text.secondary}>
               Curated by {collection.owner.displayName} · {experienceCountLabel}
             </Caption>
-          </View>
+          </Pressable>
         )}
 
         {showLastUpdated ? (

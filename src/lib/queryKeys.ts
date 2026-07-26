@@ -52,7 +52,7 @@ export const queryKeys = {
     discover: (sort: 'newest' | 'trending', city?: string) =>
       ['experiences', 'discover', sort, city ?? 'all'] as const,
 
-    /** Single experience detail. */
+    /** Single experience detail. */  
     detail: (id: string) => ['experiences', 'detail', id] as const,
     /** Related experiences shown on an experience's detail page (Sprint 2 Prompt 2) — keyed by the experience they're related to, not by category/city, since that's an implementation detail of how "related" is computed today. */
     related: (experienceId: string) => ['experiences', 'related', experienceId] as const,
@@ -181,16 +181,64 @@ export const queryKeys = {
     me: () => ['users', 'me'] as const,
     followers: (id: string) => ['users', 'followers', id] as const,
     following: (id: string) => ['users', 'following', id] as const,
+    /**
+     * Sprint 6 Prompt 1 — every user id the SIGNED-IN user follows, as a
+     * flat array. Backs every Follow/Following button's own indicator
+     * (useIsFollowing) the same shared-query-with-select shape
+     * queryKeys.saved.experienceIds backs useIsExperienceSaved — one
+     * request no matter how many Follow buttons are mounted (a Public
+     * Profile's own button, plus one per row in any open Followers/
+     * Following list), each re-rendering only when ITS OWN membership
+     * flips. Deliberately separate from `following(id)` above, which is
+     * a different shape (paginated FULL user-preview objects for
+     * *any* user's Following list screen, not just "ids the viewer
+     * themself follows").
+     */
+    followingIds: (userId: string) => ['users', 'following-ids', userId] as const,
     suggested: () => ['users', 'suggested'] as const,
     /** Sprint 5 Prompt 2 — live-typing user search for the Invite Collaborators screen, scoped per-Collection since the eligible/blocked set (already-invited, already-collaborating) differs per Collection. */
     invitableSearch: (collectionId: string, query: string) =>
       ['users', 'invitable-search', collectionId, query] as const,
   },
 
-  // ── Saved Places ────────────────────────────────────────────────────────────
+  // ── Saved ────────────────────────────────────────────────────────────────────
+  // `places()` predates Sprint 5 Prompt 4 and stays as inert scaffolding —
+  // no code reads/writes it (Saved Places is explicitly out of scope; see
+  // the Core Product Architecture ADR: "Users save Experiences, not
+  // Places"). The keys below back the real Saved domain.
   saved: {
     all: () => ['saved'] as const,
     places: () => ['saved', 'places'] as const,
+    /** Sprint 5 Prompt 4 — every id of an Experience the signed-in user has saved. Backs every Experience Card's saved indicator (one shared query, not one per card — see savedService.ts's module doc) and the Saved tab's Experiences section. */
+    experienceIds: (userId: string) => ['saved', 'experience-ids', userId] as const,
+    /** Sprint 5 Prompt 4 — same shape as `experienceIds`, for Collections. */
+    collectionIds: (userId: string) => ['saved', 'collection-ids', userId] as const,
+    /** Sprint 5 Prompt 4 — the Saved tab's paginated Experiences section. */
+    experiences: (userId: string) => ['saved', 'experiences', userId] as const,
+    /** Sprint 5 Prompt 4 — the Saved tab's paginated Collections section. */
+    collections: (userId: string) => ['saved', 'collections', userId] as const,
+  },
+
+  // ── Likes ────────────────────────────────────────────────────────────────────
+  // Sprint 6 Prompt 2. Same shared-ids-query shape as `saved.experienceIds` /
+  // `users.followingIds` — see useLikes.ts's module doc for why one query
+  // backs every heart's indicator instead of one per card.
+  likes: {
+    all: () => ['likes'] as const,
+    /** Every experience id the signed-in user has liked. Backs every heart's own indicator (useIsLiked) and the bulk membership set (useLikedExperienceIds). */
+    likedExperienceIds: (userId: string) => ['likes', 'liked-experience-ids', userId] as const,
+    /**
+     * A single experience's LIVE like count, read straight from the
+     * `likes` table rather than `experiences.like_count` (see the
+     * migration's own header comment for why) — deliberately NOT used by
+     * every ExperienceCard (that would be a query per card, the exact
+     * thing requirement #14 rules out). Only Experience Detail's own
+     * engagement row (one screen, one experience) mounts this; every
+     * other surface displays the count already embedded in whichever
+     * list query rendered that card, kept in sync via useLikes.ts's
+     * optimistic cache patch instead.
+     */
+    count: (experienceId: string) => ['likes', 'count', experienceId] as const,
   },
 
   // ── Notifications ───────────────────────────────────────────────────────────

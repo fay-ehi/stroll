@@ -75,3 +75,6 @@ export { ScreenContainer, type ScreenContainerProps } from './ScreenContainer';
 
 // ─── OfflineBanner ─────────────────────────────────────────────────────────────
 export { OfflineBanner } from './OfflineBanner';
+
+// ─── LikeButton ────────────────────────────────────────────────────────────────
+export { LikeButton, type LikeButtonProps, type LikeButtonSize } from './LikeButton';

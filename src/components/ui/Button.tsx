@@ -75,6 +75,8 @@ export interface ButtonProps extends Omit<PressableProps, 'style' | 'children'> 
   accessibilityLabel?: string;
   /** Optional outer style override — use sparingly, prefer variant/size props. */
   style?: ViewStyle;
+  /** Overrides the variant's default text/icon color (e.g. a toggle button that needs a different color per on/off state than its variant otherwise gives it). Ignored while disabled — the disabled color always wins. */
+  color?: string;
 }
 
 // ─── Size Map ──────────────────────────────────────────────────────────────────
@@ -164,7 +166,8 @@ export function Button({
   loading = false,
   disabled = false,
   accessibilityLabel,
- style,
+  style,
+  color,
   onPressIn,
   onPressOut,
   ...pressableProps
@@ -172,6 +175,7 @@ export function Button({
   const variantStyle = getVariantStyle(variant);
   const sizing = SIZE_MAP[size];
   const isInteractionDisabled = disabled || loading;
+  const resolvedColor = disabled ? variantStyle.disabledTextColor : (color ?? variantStyle.textColor);
   const [isPressed, setIsPressed] = React.useState(false);
 
   return (
@@ -221,7 +225,7 @@ onPressIn={(e) => {
         // width and height — per Design System: "never shift position".
         <ActivityIndicator
           size="small"
-          color={variantStyle.textColor}
+          color={resolvedColor}
         />
       ) : (
         <View style={styles.content}>
@@ -230,7 +234,7 @@ onPressIn={(e) => {
               <Icon
                 icon={leftIcon}
                 size={sizing.iconSize}
-                color={disabled ? variantStyle.disabledTextColor : variantStyle.textColor}
+                color={resolvedColor}
               />
             </View>
           ) : null}
@@ -238,7 +242,7 @@ onPressIn={(e) => {
           <Text
             style={[
               textStyles[sizing.textStyleKey],
-              { color: disabled ? variantStyle.disabledTextColor : variantStyle.textColor },
+              { color: resolvedColor },
             ]}
             numberOfLines={1}
           >
@@ -250,7 +254,7 @@ onPressIn={(e) => {
               <Icon
                 icon={rightIcon}
                 size={sizing.iconSize}
-                color={disabled ? variantStyle.disabledTextColor : variantStyle.textColor}
+                color={resolvedColor}
               />
             </View>
           ) : null}
