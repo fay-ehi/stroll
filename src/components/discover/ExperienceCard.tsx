@@ -116,6 +116,13 @@ import { Bookmark, BookmarkCheck, Heart, MapPin, BadgeCheck, ImageOff } from 'lu
 
 import { theme, useReducedMotion, EASING_STANDARD } from '@/theme';
 import { Card, Avatar, Badge, Icon, H5, Body, BodySmall, Caption, LikeButton } from '@/components/ui';
+// Imported by direct file path, not the `@/components/search` barrel —
+// that barrel also exports RecommendedResults/DiscoveryPrompt, which
+// themselves import ExperienceCard/CollectionCard FROM this file's own
+// barrel (components/discover). Importing the search barrel here would
+// create a require cycle; HighlightedText itself only depends on
+// features/search, so importing it directly has no such issue.
+import { HighlightedText } from '@/components/search/HighlightedText';
 import { useImageLoadFailed } from '@/hooks';
 import { useIsExperienceSaved, useToggleSaveExperience } from '@/hooks/useSaved';
 import { useIsLiked, useLike } from '@/hooks/useLikes';
@@ -205,6 +212,14 @@ export interface ExperienceCardProps {
   style?: ViewStyle;
   /** Which surface rendered this card — attached to the `experience_opened` analytics event, and gates whether the Save button renders (only 'saved'). Defaults to the main feed, the most common case. */
   source?: ExperienceCardSource;
+  /**
+   * Sprint 7 Prompt 2 — Smart Search & Discovery, "Keyword Highlighting".
+   * When set, the matching portion of `title` renders visually emphasized
+   * (see HighlightedText, components/search). Omitted everywhere except
+   * the Search screen's results — every other surface passes nothing and
+   * renders the plain title exactly as before.
+   */
+  highlightQuery?: string;
 }
 
 // Photography must occupy "at least 60%" of the card (Design System §24).
@@ -225,6 +240,7 @@ export const ExperienceCard = React.memo(function ExperienceCard({
   width,
   style,
   source = 'discover_feed',
+  highlightQuery,
 }: ExperienceCardProps) {
   const { title, storyPreview, location, category, creator, coverImage, likeCount, featured } =
     experience;
@@ -400,7 +416,7 @@ export const ExperienceCard = React.memo(function ExperienceCard({
             </Pressable>
 
             <H5 numberOfLines={2} style={styles.title}>
-              {title}
+              <HighlightedText text={title} query={highlightQuery} />
             </H5>
 
             {isCompact ? null : (

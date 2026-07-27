@@ -28,6 +28,24 @@
  * "Search should always feel responsive" requirement — a single flaky
  * section is a worse failure mode for a unified results screen than
  * silently showing fewer sections.
+ *
+ * ── Sprint 7 Prompt 2 — Smart Search & Discovery ──
+ * `searchAll()` gains two steps after the three sections above already
+ * resolve, both delegated to the new `features/search/` module so this
+ * file stays the thin orchestrator its Prompt 1 doc describes rather
+ * than growing its own ranking/matching logic inline:
+ *   1. Rank each section by relevance (features/search/ranking) — the
+ *      prompt's "Intelligent Ranking" requirement.
+ *   2. For any section that came back with zero exact matches, fetch a
+ *      small recommendation candidate pool using keyword-mapping's
+ *      `expandSearchTerms()` (the prompt's "Similar Keyword Matching")
+ *      plus, for multi-word queries, each individual significant word
+ *      (`significantTokens()` — recovers from a whole phrase like "quiet
+ *      cafés in lagos" matching nothing by retrying each word alone),
+ *      then rank and cap that pool via `features/search/recommendations`.
+ *      This ONLY fires extra queries when a section is actually empty —
+ *      a query with strong exact matches costs exactly what Prompt 1's
+ *      version already cost.
  */
 
 import { logError, normalizeError, type StrollError } from '@/lib/errors';
@@ -37,6 +55,17 @@ import { searchCreators } from '@/services/profileService';
 import { toExperienceCardModel, type ExperienceCardModel } from '@/types/experience';
 import { toCollectionCardModel, type CollectionCardModel } from '@/types/collection';
 import { toCreatorSearchResult, type SearchResults, EMPTY_SEARCH_RESULTS } from '@/types/search';
+import { uniqueBy } from '@/utils';
+import {
+  rankExperienceResults,
+  rankCollectionResults,
+  rankCreatorResults,
+  expandSearchTerms,
+  significantTokens,
+  selectRecommendedExperiences,
+  selectRecommendedCollections,
+  RECOMMENDATION_LIMIT,
+} from '@/features/search';
 
 // ─── Result Type ───────────────────────────────────────────────────────────────
 
@@ -90,10 +119,56 @@ export interface SearchAllParams {
 }
 
 /**
+ * Search terms to additionally query when a section needs recommendation
+ * candidates — keyword-mapping's related terms first, then (for
+ * multi-word queries only) each individual significant word, deduped
+ * case-insensitively and capped so a thin/no-match query never fans out
+ * into an unbounded number of extra requests.
+ */
+const MAX_RECOMMENDATION_TERMS = 5;
+
+function recommendationSearchTerms(query: string): string[] {
+  const expanded = expandSearchTerms(query);
+
+  const tokens = significantTokens(query);
+  // A single-word query's only token IS the query itself — tokenizing it
+  // again would just re-search the exact term that already found nothing.
+  const tokenFallback = tokens.length > 1 ? tokens : [];
+
+  return uniqueBy([...expanded, ...tokenFallback], (term) => term.toLowerCase()).slice(
+    0,
+    MAX_RECOMMENDATION_TERMS,
+  );
+}
+
+/** Fetches and merges recommendation candidates across every related search term, in parallel — one combined pool `selectRecommendedExperiences`/`selectRecommendedCollections` then rank and cap. Returns empty arrays immediately (no requests fired) when there are no related terms for this query. */
+async function fetchRecommendationCandidates(
+  terms: string[],
+  limit: number,
+): Promise<{ experiences: ExperienceCardModel[]; collections: CollectionCardModel[] }> {
+  if (terms.length === 0) return { experiences: [], collections: [] };
+
+  const results = await Promise.all(
+    terms.map((term) =>
+      Promise.all([searchExperiencesSection(term, limit), searchCollectionsSection(term, limit)]),
+    ),
+  );
+
+  return {
+    experiences: uniqueBy(results.flatMap(([experiences]) => experiences), (item) => item.id),
+    collections: uniqueBy(results.flatMap(([, collections]) => collections), (item) => item.id),
+  };
+}
+
+/**
  * Runs all three domain searches in parallel and returns one combined
  * `SearchResults` object — Experiences, Collections, and Creators, in
  * that order (the prompt's own required section order; useSearch.ts and
- * search.tsx render them in this same order without re-deriving it).
+ * search.tsx render them in this same order without re-deriving it),
+ * each ranked by relevance to `query`. When Experiences and/or
+ * Collections come back with no exact matches, also populates the
+ * matching `recommended*` field from a keyword-expanded candidate pool
+ * (see module doc).
  *
  * Always resolves `ok: true` — a section-level failure degrades to an
  * empty array for that section rather than failing the whole call (see
@@ -110,13 +185,48 @@ export async function searchAll(params: SearchAllParams): Promise<SearchServiceR
   const limit = params.limit ?? 10;
 
   try {
-    const [experiences, collections, creators] = await Promise.all([
+    const [rawExperiences, rawCollections, rawCreators] = await Promise.all([
       searchExperiencesSection(query, limit),
       searchCollectionsSection(query, limit),
       searchCreatorsSection(query, limit, params.excludeUserId),
     ]);
 
-    return { ok: true, data: { experiences, collections, creators } };
+    const experiences = rankExperienceResults(rawExperiences, query);
+    const collections = rankCollectionResults(rawCollections, query);
+    const creators = rankCreatorResults(rawCreators, query);
+
+    const needsExperienceRecommendations = experiences.length === 0;
+    const needsCollectionRecommendations = collections.length === 0;
+
+    let recommendedExperiences: ExperienceCardModel[] = [];
+    let recommendedCollections: CollectionCardModel[] = [];
+
+    if (needsExperienceRecommendations || needsCollectionRecommendations) {
+      const terms = recommendationSearchTerms(query);
+      const candidates = await fetchRecommendationCandidates(terms, limit);
+
+      if (needsExperienceRecommendations) {
+        recommendedExperiences = selectRecommendedExperiences(
+          candidates.experiences,
+          new Set(experiences.map((item) => item.id)),
+          query,
+          RECOMMENDATION_LIMIT,
+        );
+      }
+      if (needsCollectionRecommendations) {
+        recommendedCollections = selectRecommendedCollections(
+          candidates.collections,
+          new Set(collections.map((item) => item.id)),
+          query,
+          RECOMMENDATION_LIMIT,
+        );
+      }
+    }
+
+    return {
+      ok: true,
+      data: { experiences, collections, creators, recommendedExperiences, recommendedCollections },
+    };
   } catch (err) {
     // Shouldn't be reachable — every awaited call above already catches
     // and degrades internally — but kept for the same reason every other

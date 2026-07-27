@@ -33,15 +33,18 @@ import { Avatar, Body, BodySmall, Button, Icon, SkeletonCircle, SkeletonText } f
 import { BadgeCheck } from 'lucide-react-native';
 import { useIsFollowing, useFollow } from '@/hooks/useFollows';
 import { ROUTES } from '@/constants/routes';
+import { HighlightedText } from './HighlightedText';
 import type { CreatorSearchResult } from '@/types/search';
 
 export interface CreatorResultRowProps {
   creator: CreatorSearchResult;
   /** The signed-in user's own id — hides the Follow button on a self-match. Undefined when signed out, which also hides the button (can't follow while signed out). */
   currentUserId: string | undefined;
+  /** Sprint 7 Prompt 2 — Smart Search & Discovery, "Keyword Highlighting". See ExperienceCardProps's identical field for the full rationale; highlights the display name here. */
+  highlightQuery?: string;
 }
 
-export function CreatorResultRow({ creator, currentUserId }: CreatorResultRowProps) {
+export function CreatorResultRow({ creator, currentUserId, highlightQuery }: CreatorResultRowProps) {
   const isSelf = !!currentUserId && currentUserId === creator.id;
   const isFollowing = useIsFollowing(creator.id);
   const followMutation = useFollow();
@@ -70,7 +73,7 @@ export function CreatorResultRow({ creator, currentUserId }: CreatorResultRowPro
       <View style={styles.textColumn}>
         <View style={styles.nameRow}>
           <Body numberOfLines={1} style={styles.name}>
-            {creator.displayName}
+            <HighlightedText text={creator.displayName} query={highlightQuery} />
           </Body>
           {creator.isVerified ? (
             <Icon

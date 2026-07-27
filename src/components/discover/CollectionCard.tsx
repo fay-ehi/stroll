@@ -61,6 +61,9 @@ import { useImageLoadFailed } from '@/hooks';
 import { useIsCollectionSaved, useToggleSaveCollection } from '@/hooks/useSaved';
 import { hitSlop } from '@/theme/utils';
 import { ROUTES } from '@/constants/routes';
+// Direct file path, not the `@/components/search` barrel — see
+// ExperienceCard.tsx's identical import for why (avoiding a require cycle).
+import { HighlightedText } from '@/components/search/HighlightedText';
 import type { CollectionCardModel } from '@/types/collection';
 import type { CreatorPreview } from '@/types/experience';
 
@@ -68,6 +71,8 @@ export interface CollectionCardProps {
   collection: CollectionCardModel;
   onPress?: (collection: CollectionCardModel) => void;
   style?: ViewStyle;
+  /** Sprint 7 Prompt 2 — Smart Search & Discovery, "Keyword Highlighting". See ExperienceCardProps's identical field for the full rationale; same behavior here. */
+  highlightQuery?: string;
 }
 
 // ─── Contributor Avatar ─────────────────────────────────────────────────────────
@@ -100,6 +105,7 @@ export const CollectionCard = React.memo(function CollectionCard({
   collection,
   onPress,
   style,
+  highlightQuery,
 }: CollectionCardProps) {
   const [imageFailed, onImageError] = useImageLoadFailed(collection.coverImage?.url);
   const showImage = collection.coverImage && !imageFailed;
@@ -157,7 +163,9 @@ export const CollectionCard = React.memo(function CollectionCard({
           </View>
 
           <View style={styles.body}>
-            <H5 numberOfLines={1}>{collection.title}</H5>
+            <H5 numberOfLines={1}>
+              <HighlightedText text={collection.title} query={highlightQuery} />
+            </H5>
 
             {collection.city ? (
               <Caption color={theme.colors.text.tertiary}>{collection.city}</Caption>

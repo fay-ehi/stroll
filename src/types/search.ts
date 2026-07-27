@@ -26,6 +26,15 @@
  * own card models, not a new fourth model. Nothing here talks to
  * Supabase or React — see services/searchService.ts and hooks/useSearch.ts
  * for those layers.
+ *
+ * Sprint 7 Prompt 2 — Smart Search & Discovery adds `recommendedExperiences`
+ * / `recommendedCollections`: the "Suggested Results" section (and the
+ * enhanced No Results state's "you might enjoy these instead" content),
+ * populated only when the matching exact-query section came back empty —
+ * see searchService.ts and features/search/recommendations for how these
+ * are selected. Additive fields on the existing type, not a parallel
+ * result shape — every Sprint 7 Prompt 1 caller of `SearchResults` keeps
+ * compiling unchanged.
  */
 
 import type { CreatorPreview, ExperienceCardModel } from './experience';
@@ -74,10 +83,16 @@ export interface SearchResults {
   experiences: ExperienceCardModel[];
   collections: CollectionCardModel[];
   creators: CreatorSearchResult[];
+  /** "Recommended Experiences" — populated only when `experiences` came back empty for this exact query. See features/search/recommendations. */
+  recommendedExperiences: ExperienceCardModel[];
+  /** "Recommended Collections" — populated only when `collections` came back empty for this exact query. See features/search/recommendations. */
+  recommendedCollections: CollectionCardModel[];
 }
 
 export const EMPTY_SEARCH_RESULTS: SearchResults = {
   experiences: [],
   collections: [],
   creators: [],
+  recommendedExperiences: [],
+  recommendedCollections: [],
 };
