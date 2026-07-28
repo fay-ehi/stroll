@@ -34,3 +34,6 @@ export {
   type StorageKey,
   type StorageResult,
 } from './storage';
+export { formatNotificationTime } from './notificationTime';
+export { groupNotificationsByDate, type NotificationGroupSection } from './notificationGrouping';
+export { resolveNotificationRoute } from './notificationNavigation';

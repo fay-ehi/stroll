@@ -37,6 +37,13 @@
  * this codebase doesn't queue writes for later; a follow/unfollow
  * attempted while offline fails fast with a clear NETWORK_ERROR toast
  * instead.
+ *
+ * ── Sprint 8 Prompt 1 addition ──
+ * useFollow()'s onSuccess now also emits the `user_followed` domain
+ * event (src/lib/domainEvents.ts) on a genuine Follow, so Notification
+ * Infrastructure's automatic "Ada started following you" notification
+ * fires the same way Collections/Likes' own domain events already do —
+ * see domainEvents.ts's own module doc for the full "why."
  */
 
 import { useMemo } from 'react';
@@ -57,6 +64,7 @@ import {
   type FollowListPage,
 } from '@/services/followsService';
 import { toFollowUserPreview, type FollowUserPreview } from '@/types/follow';
+import { emitUserFollowed } from '@/lib/domainEvents';
 
 // ─── Shared ─────────────────────────────────────────────────────────────────────
 
@@ -215,6 +223,16 @@ export function useFollow() {
         void queryClient.invalidateQueries({ queryKey: queryKeys.users.followers(user.id) });
         // My own Following list, if it's open anywhere.
         void queryClient.invalidateQueries({ queryKey: queryKeys.users.following(user.id) });
+
+        // `isFollowing` here is the PRE-toggle state (see ToggleFollowVars'
+        // own doc) — false means the action just taken was a genuine
+        // Follow, not an Unfollow. Sprint 8 Prompt 1: only a genuine
+        // Follow generates a notification (same "only the positive
+        // action notifies" convention useLikes.ts's useLike() already
+        // established for experience.liked).
+        if (!isFollowing) {
+          emitUserFollowed({ followerId: user.id, followingId: targetUserId });
+        }
       }
       // The target's combined counts AND their Followers list, if open anywhere.
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.followers(targetUserId) });

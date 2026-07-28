@@ -415,6 +415,64 @@ export interface Database {
         };
         Relationships: [];
       };
+      // Sprint 8 Prompt 1 addition — concrete `notifications` entry. Same
+      // reasoning as `saved_items`/`follows`/`likes` above: written as an
+      // inline object literal (never `interface`), so it keeps satisfying
+      // the `[key: string]` fallback below. See
+      // supabase/migrations/sprint8_prompt1_notifications.sql for the
+      // schema this mirrors, and src/services/notificationsService.ts for
+      // the only file that queries this table directly. Two FKs into
+      // `profiles` (recipient_id, actor_id) — same disambiguated-embed
+      // situation `follows` has with follower_id/following_id — see that
+      // migration's named constraints (`notifications_recipient_id_fkey`,
+      // `notifications_actor_id_fkey`, Postgres's own default
+      // `<table>_<column>_fkey` naming) and notificationsService.ts's
+      // `profiles!notifications_actor_id_fkey` embed hint.
+      notifications: {
+        Row: {
+          id: string;
+          recipient_id: string;
+          actor_id: string | null;
+          notification_type: string;
+          title: string;
+          message: string;
+          entity_type: string | null;
+          entity_id: string | null;
+          metadata: Json;
+          is_read: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          recipient_id: string;
+          actor_id?: string | null;
+          notification_type: string;
+          title: string;
+          message: string;
+          entity_type?: string | null;
+          entity_id?: string | null;
+          metadata?: Json;
+          is_read?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          recipient_id?: string;
+          actor_id?: string | null;
+          notification_type?: string;
+          title?: string;
+          message?: string;
+          entity_type?: string | null;
+          entity_id?: string | null;
+          metadata?: Json;
+          is_read?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       // Every other/future table falls back to this generic shape until
       // it's given a concrete entry (or the whole file is regenerated).
       [key: string]: {

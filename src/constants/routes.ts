@@ -61,6 +61,13 @@ export const APP_ROUTES = {
   otherUserProfile: (userId: string) => `/(app)/profile/${userId}` as const,
   editProfile:      '/(app)/profile/edit' as const,
   settings:         '/(app)/settings' as const,
+  /**
+   * Sprint 8 Prompt 2 — Notification Center. A stack push (like the
+   * other APP_ROUTES above), not a modal — reached from DiscoverTopBar's
+   * bell icon, which previously only showed a "coming soon" toast (see
+   * that component's own diff this sprint).
+   */
+  notifications:    '/(app)/notifications' as const,
 } as const;
 
 // ─── Modal Group ───────────────────────────────────────────────────────────────

@@ -14,20 +14,43 @@
  * these two interactive elements, and profile access already exists via
  * the bottom tab bar.
  *
- * Neither the city switcher nor the notifications panel exist yet (no
- * route, no screen) — both are real, tappable, give honest feedback via
- * the existing Toast system, and persist nothing, same placeholder
- * pattern as ExperienceCard's save button.
+ * The city switcher still has no route/screen — it stays a real,
+ * tappable placeholder that gives honest feedback via the existing
+ * Toast system, same pattern as ExperienceCard's save button.
+ *
+ * Sprint 8 Prompt 2 update: the notification bell now opens the real
+ * Notification Center (see app/(app)/notifications.tsx) instead of
+ * showing "coming soon" — the screen this sprint builds needs an entry
+ * point somewhere, and this bell (PRD §8.3's own "opens notifications
+ * panel") is that entry point.
+ *
+ * Sprint 8 Prompt 3 update: the bell now carries a live unread-count
+ * badge (NotificationBadge) — the count comes straight from
+ * useUnreadNotificationCount(), the exact same cache
+ * useRealtimeNotifications.ts (mounted once, app-wide, in AuthProvider)
+ * keeps live, so this component needs no Realtime knowledge of its own;
+ * it just reads the badge's number like any other query result. This is
+ * also this codebase's literal stand-in for the prompt doc's "bottom
+ * navigation notification icon" — Stroll's actual bottom tab bar is
+ * Discover/Search/Saved/Profile only (app/(app)/(tabs)/_layout.tsx's own
+ * doc, PRD §7 — no Notifications tab exists), and this bell is the
+ * app's one real notification entry point (PRD §8.3), so the badge lives
+ * here instead.
  */
 
 import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
 import { MapPin, ChevronDown, Bell } from 'lucide-react-native';
 
 import { theme } from '@/theme';
 import { H4, Caption, Icon } from '@/components/ui';
+import { NotificationBadge } from '@/components/notifications';
 import { showToast } from '@/stores/toastStore';
+import { useAuthStore } from '@/stores/authStore';
+import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { hitSlop } from '@/theme/utils';
+import { ROUTES } from '@/constants/routes';
 
 const TAP_TARGET = 40;
 
@@ -36,12 +59,15 @@ export interface DiscoverTopBarProps {
 }
 
 export function DiscoverTopBar({ city }: DiscoverTopBarProps) {
+  const userId = useAuthStore((s) => s.user?.id);
+  const unreadCount = useUnreadNotificationCount(userId);
+
   const handleCityPress = () => {
     showToast({ type: 'info', message: 'Switching cities is coming soon.' });
   };
 
   const handleNotificationsPress = () => {
-    showToast({ type: 'info', message: 'Notifications are coming soon.' });
+    router.push(ROUTES.app.notifications as never);
   };
 
   return (
@@ -74,9 +100,10 @@ export function DiscoverTopBar({ city }: DiscoverTopBarProps) {
         style={styles.iconButton}
         hitSlop={hitSlop(TAP_TARGET)}
         accessibilityRole="button"
-        accessibilityLabel="Notifications"
+        accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
       >
         <Icon icon={Bell} size="sm" color={theme.colors.text.primary} />
+        <NotificationBadge count={unreadCount} />
       </Pressable>
     </View>
   );

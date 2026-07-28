@@ -242,9 +242,21 @@ export const queryKeys = {
   },
 
   // ── Notifications ───────────────────────────────────────────────────────────
+  // Predated Sprint 8 Prompt 1 as inert scaffolding (`all()`/`unread()`,
+  // no params, nothing read/wrote them) — now made real, same
+  // "scaffolding becomes real without changing shape for existing
+  // callers" pattern `saved`/`search` above went through. `unread()`
+  // becomes `unreadCount(userId)` (parametrized, matching every other
+  // per-user key in this file — `saved.experienceIds(userId)`,
+  // `likes.likedExperienceIds(userId)`) since a bare unparametrized key
+  // can't scope to "MY unread count" the way the badge needs.
   notifications: {
+    /** Matches ALL of a signed-in session's notification queries — use for broad invalidation. */
     all: () => ['notifications'] as const,
-    unread: () => ['notifications', 'unread'] as const,
+    /** A user's own notifications, newest-first (useNotifications' useInfiniteQuery). */
+    list: (userId: string) => ['notifications', 'list', userId] as const,
+    /** The notification badge count (useUnreadNotificationCount) — deliberately its own key, not a `select` over `list(userId)`, since the badge should stay correct even before/without the full list ever being fetched. */
+    unreadCount: (userId: string) => ['notifications', 'unread-count', userId] as const,
   },
 
   // ── Search ──────────────────────────────────────────────────────────────────

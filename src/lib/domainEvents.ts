@@ -39,9 +39,30 @@
  * placement lib/analytics.ts's own call sites already use (see
  * useUserGallery.ts's trackExperienceDeleted, useExperienceCreation.ts's
  * trackExperiencePublished).
+ *
+ * ── Sprint 8 Prompt 1 (Notification Infrastructure) ──
+ * This is the literal swap this file's own doc above described three
+ * sprints in advance: emitDomainEvent()'s body now calls
+ * createNotificationFromDomainEvent() (src/services/notificationsService.ts)
+ * instead of only devLog-ing. Every emit*() call site above needed zero
+ * changes. Two things changed alongside that swap:
+ *   1. A new Follow vocabulary below (`user_followed`) — this sprint's
+ *      own Supported Notification Types list requires "A user follows
+ *      another user" to generate a notification, and per this file's own
+ *      "why" (one stream, not a parallel mechanism), Follow now emits
+ *      through here too rather than calling notificationsService
+ *      directly from useFollows.ts. (The note above about Follow
+ *      "deliberately" not emitting was about Sprint 6 Prompt 1's own
+ *      scope, not a permanent exclusion — see useFollows.ts's own diff.)
+ *   2. `collection_invitation_declined` / `collection_collaborator_added`
+ *      / `collection_collaborator_removed` still emit (nothing about the
+ *      event vocabulary changed), but
+ *      createNotificationFromDomainEvent()'s own switch intentionally
+ *      no-ops on those three — see that function's comments for why.
  */
 
 import { devLog } from '@/lib/config';
+import { createNotificationFromDomainEvent } from '@/services/notificationsService';
 
 // ─── Event Vocabulary — Collections (Sprint 5 Prompt 2) ─────────────────────────
 
@@ -79,19 +100,44 @@ export interface ExperienceDomainEventPayloads {
   'experience.liked': { experienceId: string; likedBy: string; creatorId: string };
 }
 
+// ─── Event Vocabulary — Follow (Sprint 8 Prompt 1) ──────────────────────────────
+
+export type UserDomainEventName = 'user_followed';
+
+export interface UserDomainEventPayloads {
+  /**
+   * Fired only on a genuine Follow (never on Unfollow) — see
+   * useFollows.ts's useFollow() onSuccess, which only calls this when
+   * the pre-toggle state was "not following," the same "only the
+   * positive action notifies" convention experience.liked's own doc
+   * above already established. Named to match this file's snake_case
+   * Collection vocabulary rather than Likes' dot-notation, since (like
+   * Collections) this event has no pre-existing differently-named
+   * lib/analytics.ts counterpart forcing a specific literal name.
+   */
+  user_followed: { followerId: string; followingId: string };
+}
+
 // ─── Core ──────────────────────────────────────────────────────────────────────
 
-export type DomainEventName = CollectionDomainEventName | ExperienceDomainEventName;
+export type DomainEventName = CollectionDomainEventName | ExperienceDomainEventName | UserDomainEventName;
 
 export interface DomainEventPayloads
   extends CollectionDomainEventPayloads,
-    ExperienceDomainEventPayloads {}
+    ExperienceDomainEventPayloads,
+    UserDomainEventPayloads {}
 
 function emitDomainEvent<TName extends DomainEventName>(
   name: TName,
   payload: DomainEventPayloads[TName],
 ): void {
   devLog(`[domain-event] ${name}`, payload);
+
+  // Fire-and-forget — notification creation must never block, delay, or
+  // fail the user-facing action (a follow/like/invite) that triggered
+  // it. createNotificationFromDomainEvent() catches and logs its own
+  // errors internally (see its own doc); nothing here awaits it.
+  void createNotificationFromDomainEvent(name, payload);
 }
 
 // ─── Per-Event Helpers ───────────────────────────────────────────────────────────
@@ -130,4 +176,10 @@ export function emitExperienceLiked(
   payload: ExperienceDomainEventPayloads['experience.liked'],
 ): void {
   emitDomainEvent('experience.liked', payload);
+}
+
+export function emitUserFollowed(
+  payload: UserDomainEventPayloads['user_followed'],
+): void {
+  emitDomainEvent('user_followed', payload);
 }
