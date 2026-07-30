@@ -475,6 +475,46 @@ export interface Database {
       };
       // Every other/future table falls back to this generic shape until
       // it's given a concrete entry (or the whole file is regenerated).
+      // Sprint 9 Prompt 2 addition — concrete `feedback` entry. Same
+      // reasoning as `follows`/`likes` above: written as an inline object
+      // literal (never `interface`), so it keeps satisfying the
+      // `[key: string]` fallback below. See
+      // supabase/migrations/sprint9_prompt2_feedback.sql for the schema
+      // this mirrors, and src/services/feedbackService.ts for the only
+      // file that queries this table directly.
+      feedback: {
+        Row: {
+          id: string;
+          user_id: string;
+          type: string;
+          message: string;
+          app_version: string | null;
+          platform: string | null;
+          status: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          type: string;
+          message: string;
+          app_version?: string | null;
+          platform?: string | null;
+          status?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          type?: string;
+          message?: string;
+          app_version?: string | null;
+          platform?: string | null;
+          status?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       [key: string]: {
         Row: Record<string, unknown>;
         Insert: Record<string, unknown>;
@@ -499,6 +539,18 @@ export interface Database {
           category_filter?: string | null;
         };
         Returns: (Database['public']['Tables']['places']['Row'] & { distance_km: number })[];
+      };
+      /**
+       * Deletes the calling user's own account and all owned data.
+       * SECURITY DEFINER, hard-scoped to auth.uid() inside its own body —
+       * see supabase/migrations/sprint9_prompt1_delete_account.sql (Sprint 9
+       * Prompt 1 — Settings: Delete Account). Deliberately takes no
+       * arguments: there is no id parameter to pass, so there is nothing
+       * here that could target another account.
+       */
+      delete_own_account: {
+        Args: Record<string, never>;
+        Returns: void;
       };
       [key: string]: {
         Args: Record<string, unknown>;

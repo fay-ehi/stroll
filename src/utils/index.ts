@@ -254,6 +254,16 @@ export const VALIDATION = {
   },
 
   /**
+   * Reserved username check (Sprint 9 Prompt 1 — Settings: Username
+   * Management). Case-insensitive. Takes the reserved list as a parameter
+   * — same reasoning as isValidCity above — so this file stays free of a
+   * dependency on constants/app.ts; callers pass RESERVED_USERNAMES.
+   */
+  isReservedUsername(username: string, reserved: readonly string[]): boolean {
+    return reserved.includes(username.trim().toLowerCase());
+  },
+
+  /**
    * Generic bounded-text check: trims, then requires length within
    * [min, max]. Used by domain validators (e.g. an experience draft's
    * title/description in types/experienceDraft.ts) that need the same

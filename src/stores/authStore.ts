@@ -23,6 +23,8 @@ import {
   signOut,
   requestPasswordReset,
   updatePassword,
+  updateEmail,
+  deleteAccount,
   getSession,
   onAuthStateChange,
   type SignInCredentials,
@@ -54,6 +56,13 @@ export interface AuthState {
   signOut:          () => Promise<void>;
   requestReset:     (email: string) => Promise<{ ok: boolean; error?: StrollError }>;
   updatePassword:   (password: string) => Promise<{ ok: boolean; error?: StrollError }>;
+  /** Sprint 9 Prompt 1 (Settings — Email Management). Kicks off Supabase's
+   *  secure email-change flow; the address doesn't actually change until
+   *  the confirmation link is clicked (see authService.updateEmail). */
+  updateEmail:      (newEmail: string) => Promise<{ ok: boolean; pendingEmail?: string; error?: StrollError }>;
+  /** Sprint 9 Prompt 1 (Settings — Delete Account). Irreversible — see
+   *  authService.deleteAccount and the delete_own_account RPC it calls. */
+  deleteAccount:    () => Promise<{ ok: boolean; error?: StrollError }>;
   clearError:       () => void;
 
   // ── Internal ─────────────────────────────────────────────────────────────
@@ -168,6 +177,45 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ error: result.error });
       return { ok: false, error: result.error };
     }
+
+    return { ok: true };
+  },
+
+  // ── Update Email (Sprint 9 Prompt 1 — Settings: Email Management) ─────────
+  // Does not update `user`/`session` here — the address is only pending
+  // until the confirmation link is clicked, at which point Supabase fires
+  // a USER_UPDATED event that the listener below already handles.
+  updateEmail: async (newEmail) => {
+    set({ error: null });
+    const result = await updateEmail(newEmail);
+
+    if (!result.ok) {
+      set({ error: result.error });
+      return { ok: false, error: result.error };
+    }
+
+    return { ok: true, pendingEmail: result.data.pendingEmail };
+  },
+
+  // ── Delete Account (Sprint 9 Prompt 1 — Settings: Delete Account) ─────────
+  deleteAccount: async () => {
+    set({ error: null });
+    const result = await deleteAccount();
+
+    if (!result.ok) {
+      set({ error: result.error });
+      return { ok: false, error: result.error };
+    }
+
+    // The account (and its auth.users row) is gone server-side at this
+    // point — mirror signOut's local cleanup so nothing about this
+    // device's state still claims the user is signed in, and so the next
+    // person to use this device doesn't inherit any of this account's
+    // cached preferences.
+    await storage.remove(STORAGE_KEYS.selectedCity);
+    await storage.remove(STORAGE_KEYS.onboardingComplete);
+    await storage.remove(STORAGE_KEYS.selectedInterests);
+    set({ status: 'unauthenticated', user: null, session: null, error: null });
 
     return { ok: true };
   },

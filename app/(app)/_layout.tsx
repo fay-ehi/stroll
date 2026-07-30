@@ -61,6 +61,14 @@ export default function AppLayout() {
       <Stack.Screen name="profile/edit" />
       <Stack.Screen name="settings" />
       <Stack.Screen name="notifications" />
+      {/* Sprint 9 Prompt 2 — Help, About & Legal. */}
+      <Stack.Screen name="help" />
+      <Stack.Screen name="feedback" />
+      <Stack.Screen name="about" />
+      <Stack.Screen name="licenses" />
+      <Stack.Screen name="legal/privacy" />
+      <Stack.Screen name="legal/terms" />
+      <Stack.Screen name="legal/community-guidelines" />
     </Stack>
   );
 }

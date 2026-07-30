@@ -164,6 +164,51 @@ export async function updatePassword(
   }
 }
 
+// ─── Email Update (Sprint 9 Prompt 1 — Settings: Email Management) ────────────
+// Supabase's own secure email-change flow: `updateUser({ email })` sends a
+// confirmation link to the NEW address (and, if "Secure email change" is
+// enabled in the Supabase Auth dashboard — the recommended setting — also
+// a notice to the OLD address) rather than changing the address
+// immediately. The session's `user.email` does not change until the link
+// is clicked, so callers should treat this as "a change was requested,"
+// not "the email is now X" — this function deliberately does not attempt
+// to bypass that by writing to `profiles` or anywhere else client-side.
+// This is the one function in this file that returns the (still-pending)
+// new address back to the caller, purely so the UI can say "we sent a
+// link to {email}" without re-reading form state.
+
+export async function updateEmail(
+  newEmail: string
+): Promise<AuthResult<{ pendingEmail: string }>> {
+  try {
+    const { error } = await supabase.auth.updateUser({ email: newEmail });
+    if (error) return fail(error);
+    return ok({ pendingEmail: newEmail });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Delete Account (Sprint 9 Prompt 1 — Settings: Delete Account) ────────────
+// A user can never delete their own `auth.users` row directly (that table
+// is only writable with the service-role key, which must never ship in a
+// client app) — so this calls a Postgres RPC, `delete_own_account`,
+// instead. That function runs as SECURITY DEFINER but is hard-scoped to
+// `auth.uid()` inside its own body (see the migration SQL delivered
+// alongside this sprint, supabase/migrations/sprint9_prompt1_delete_account.sql),
+// so this client call can only ever delete the CALLING user's own account
+// — there is no id parameter to pass, by design, so there's nothing here
+// that could be misused to target another account.
+export async function deleteAccount(): Promise<AuthResult<void>> {
+  try {
+    const { error } = await supabase.rpc('delete_own_account');
+    if (error) return fail(error);
+    return ok(undefined);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ─── Session Restoration ───────────────────────────────────────────────────────
 
 export async function getSession(): Promise<AuthResult<Session | null>> {

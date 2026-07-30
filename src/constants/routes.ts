@@ -68,6 +68,22 @@ export const APP_ROUTES = {
    * that component's own diff this sprint).
    */
   notifications:    '/(app)/notifications' as const,
+  /**
+   * Sprint 9 Prompt 2 — Help, About & Legal. All five reached from the
+   * Settings screen's new Help/About/Legal sections — see
+   * app/(app)/settings.tsx's diff this sprint. Plain stack pushes, same
+   * as `settings`/`notifications` above — none of these are destructive
+   * or need the (modals) group's confirmation treatment.
+   */
+  help:             '/(app)/help' as const,
+  feedback:         '/(app)/feedback' as const,
+  about:            '/(app)/about' as const,
+  licenses:         '/(app)/licenses' as const,
+  legal: {
+    privacy:             '/(app)/legal/privacy' as const,
+    terms:               '/(app)/legal/terms' as const,
+    communityGuidelines: '/(app)/legal/community-guidelines' as const,
+  },
 } as const;
 
 // ─── Modal Group ───────────────────────────────────────────────────────────────
@@ -149,6 +165,14 @@ export const MODAL_ROUTES = {
    * the Notifications UI/push delivery this would otherwise live behind.
    */
   collectionInvitations: '/(modals)/collection-invitations',
+  /**
+   * Sprint 9 Prompt 1 — Delete Account confirmation. Design System §40:
+   * modals are reserved for critical confirmations / destructive actions
+   * — same reasoning as every other (modals) route here, but this one's
+   * the irreversible one. Opened only from the Settings screen's Danger
+   * Zone row.
+   */
+  deleteAccount: '/(modals)/delete-account',
 } as const;
 
 // ─── Combined Export ────────────────────────────────────────────────────────────

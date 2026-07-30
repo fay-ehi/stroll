@@ -37,6 +37,7 @@ export type ErrorCode =
   | 'TIMEOUT'
   | 'EMAIL_ALREADY_REGISTERED'
   | 'USERNAME_TAKEN'
+  | 'RESERVED_USERNAME'
   | 'INVALID_CREDENTIALS'
   | 'EMAIL_NOT_CONFIRMED'
   | 'RATE_LIMITED'
@@ -74,6 +75,12 @@ const USER_MESSAGES: Record<ErrorCode, string> = {
   // which is exactly the "an error occurred" vagueness this fix addresses.
   EMAIL_ALREADY_REGISTERED: 'An account with this email already exists. Try signing in instead.',
   USERNAME_TAKEN:           'This username is already taken. Please choose another.',
+  // Sprint 9 Prompt 1 (Settings — Username Management): distinct from
+  // USERNAME_TAKEN above — this username isn't held by another account,
+  // it's blocked outright (see constants/app.ts's RESERVED_USERNAMES).
+  // Worded so it doesn't imply retrying with the exact same name later
+  // would ever succeed.
+  RESERVED_USERNAME:        'This username isn\u2019t available. Please choose another.',
   // Deliberately doesn't say which of email/password is wrong — Supabase's
   // API doesn't distinguish "wrong password" from "no account with this
   // email" either, by design, to prevent attackers from using the login

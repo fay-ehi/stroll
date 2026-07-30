@@ -159,17 +159,75 @@ export async function updateProfile(
   }
 }
 
+// ─── Update Username (Sprint 9 Prompt 1 — Settings: Username Management) ──────
+// Deliberately its own function rather than folded into updateProfile()/
+// UpdateProfilePayload above — a username change has its own failure mode
+// (the unique-violation → USERNAME_TAKEN mapping createProfile() already
+// established below) that display_name/bio/city/interests edits never hit,
+// and the caller (useSettings.ts) always checks checkUsernameAvailable()
+// first anyway, so this is a deliberately narrow, single-purpose write.
+
+export async function updateUsername(
+  userId: string,
+  newUsername: string
+): Promise<ProfileResult<Profile>> {
+  try {
+    const username = newUsername.trim().toLowerCase();
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ username })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      // Same race-condition safety net as createProfile() above — the
+      // checkUsernameAvailable() pre-check in useSettings.ts closes most
+      // of the window, but two devices/tabs racing to claim the same name
+      // can still both pass that check before either write lands. The
+      // database's unique constraint is the actual source of truth.
+      if (isUsernameUniqueViolation(error)) {
+        return fail(makeError(
+          'USERNAME_TAKEN',
+          `Username unique violation updating profile: ${error.message}`,
+          error,
+        ));
+      }
+      return fail(error);
+    }
+    return ok(data);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ─── Username Availability ─────────────────────────────────────────────────────
 
 export async function checkUsernameAvailable(
-  username: string
+  username: string,
+  /**
+   * Sprint 9 Prompt 1 (Settings — Username Management) addition. Pass the
+   * signed-in user's own id when checking availability from an EDIT
+   * context (as opposed to sign-up, where there's no existing row yet) —
+   * without this, a user re-submitting their own unchanged username (or
+   * just changing its casing) would see it reported as "taken" because
+   * the `.ilike` match finds their own row. Optional and unused by
+   * useSignUp's call site above, which has no existing user yet.
+   */
+  excludeUserId?: string
 ): Promise<ProfileResult<boolean>> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select('id')
-      .ilike('username', username.trim())
-      .maybeSingle();
+      .ilike('username', username.trim());
+
+    if (excludeUserId) {
+      query = query.neq('id', excludeUserId);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) return fail(error);
     return ok(data === null);

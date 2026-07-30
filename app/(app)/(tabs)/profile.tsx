@@ -9,7 +9,6 @@
  *   Stat row: Experiences · Followers · Following (tap Followers/
  *   Following to open the follow list modal)
  *   Gallery grid of the user's own published experiences
- *   Log out (temporary — see note below)
  *
  * Changes from the previous "verification screen" version (see git
  * history / the old doc comment this replaced):
@@ -37,15 +36,18 @@
  *     "Tapping a gallery photo currently does nothing" line this doc
  *     used to have.
  *
- * Log Out lives here (not Settings) for now, since Settings is still a
- * placeholder (Sprint 4). Move this into Settings once that screen ships
- * — left as-is per product direction ("temporarily there").
+ * Sprint 9 Prompt 1: Log Out moved OUT of this screen and into the new
+ * Settings screen (app/(app)/settings.tsx) — it lived here temporarily
+ * only because Settings was a Sprint 4 placeholder. This screen now only
+ * carries a small gear icon (top-right of the header) that opens
+ * Settings; the destructive "Log out" button + its confirmation Alert
+ * that used to sit in this FlatList's footer are gone.
  */
 
 import React, { useCallback, useMemo } from 'react';
-import { View, Pressable, FlatList, StyleSheet, Alert, RefreshControl, useWindowDimensions } from 'react-native';
+import { View, Pressable, FlatList, StyleSheet, RefreshControl, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
-import { Camera, BadgeCheck, WifiOff, AlertCircle, Pencil, Compass, ImagePlus, Trash2 } from 'lucide-react-native';
+import { Camera, BadgeCheck, WifiOff, AlertCircle, Pencil, Compass, ImagePlus, Trash2, Settings } from 'lucide-react-native';
 import { showActionSheet } from '@/stores/actionSheetStore';
 
 import {
@@ -55,7 +57,6 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { DraftsTile, ExperienceGridTile, CollectionsRow } from '@/components/profile';
-import { useSignOut } from '@/hooks/useAuth';
 import {
   useProfile,
   useUpdateProfile,
@@ -103,7 +104,6 @@ type ProfileGridItem =
   | { type: 'experience'; experience: ExperienceCardModel };
 
 export default function ProfileScreen() {
-  const { signOut, loading: signingOut } = useSignOut();
   const { profile, isLoading, isError, error, isOffline, refetch } = useProfile();
   const { refresh, isRefreshing } = useRefreshProfile();
   const updateProfileMutation = useUpdateProfile();
@@ -135,13 +135,6 @@ export default function ProfileScreen() {
   const tileSize =
     (windowWidth - theme.layout.screenPaddingHorizontal * 2 - GRID_GAP * (GRID_COLUMNS - 1)) /
     GRID_COLUMNS;
-
-  const confirmSignOut = () => {
-    Alert.alert('Log out', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: () => signOut() },
-    ]);
-  };
 
   const openFollowList = (kind: 'followers' | 'following') => {
     if (!profile) return;
@@ -342,6 +335,17 @@ export default function ProfileScreen() {
   // ── Gallery header: avatar, name+pen, username, bio, stats ──────────────────
   const galleryHeader = (
     <View>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.push(ROUTES.app.settings as never)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+        >
+          <Icon icon={Settings} size="md" color={theme.colors.text.primary} />
+        </Pressable>
+      </View>
+
       {isOffline ? (
         <View style={styles.offlineBanner}>
           <Icon icon={WifiOff} size="sm" color={theme.colors.semantic.warning} />
@@ -511,13 +515,6 @@ export default function ProfileScreen() {
                 />
               </View>
             ) : null}
-            <Button
-              label="Log out"
-              variant="destructive"
-              fullWidth
-              loading={signingOut}
-              onPress={confirmSignOut}
-            />
           </View>
         }
         onEndReached={handleGalleryEndReached}
@@ -539,6 +536,12 @@ export default function ProfileScreen() {
 const AVATAR_DIAMETER = 96;
 
 const styles = StyleSheet.create({
+  topBar: {
+    flexDirection:     'row',
+    justifyContent:    'flex-end',
+    paddingHorizontal: theme.layout.screenPaddingHorizontal,
+    paddingTop:        theme.spacing.sm,
+  },
   screenPadding: {
     paddingHorizontal: theme.layout.screenPaddingHorizontal,
     paddingBottom: theme.spacing['4xl'],

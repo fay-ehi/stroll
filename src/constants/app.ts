@@ -151,6 +151,33 @@ export const PROFILE_LIMITS = {
   MAX_DISPLAY_NAME_LENGTH: 50,
 } as const;
 
+// ─── Reserved Usernames (Sprint 9 Prompt 1 — Settings: Username Management) ────
+// Usernames a user may never take, checked case-insensitively (the values
+// here are already lowercase — callers must lowercase the candidate before
+// comparing, same normalization VALIDATION.isValidUsername's caller already
+// applies). Three groups: (1) app-reserved words that would be confusing or
+// impersonate the product itself, (2) route segments this app's own
+// expo-router structure uses (a username matching one of these would create
+// an ambiguous/unreachable public profile URL — see ROUTES.app.otherUserProfile
+// and profile/[id].tsx), (3) common platform-support/impersonation terms.
+// Not exhaustive by design — this is a starting list a future sprint can
+// extend; VALIDATION.isReservedUsername (src/utils/index.ts) is the single
+// call site that consults it, so growing this array is the only edit ever
+// needed.
+export const RESERVED_USERNAMES: readonly string[] = [
+  // Product / brand
+  'stroll', 'strollapp', 'admin', 'administrator', 'official', 'strollteam',
+  // Support / trust & safety impersonation risk
+  'support', 'help', 'helpdesk', 'moderator', 'mod', 'security', 'billing',
+  'contact', 'info', 'staff', 'team', 'noreply', 'no-reply',
+  // Route segments — must never collide with a real path this app routes on
+  'settings', 'notifications', 'search', 'discover', 'saved', 'profile',
+  'collections', 'experience', 'place', 'onboarding', 'auth', 'login',
+  'logout', 'signup', 'signin', 'welcome', 'api', 'app',
+  // Generic reserved
+  'null', 'undefined', 'anonymous', 'deleted', 'deleteduser',
+] as const;
+
 // ─── Collection Limits ─────────────────────────────────────────────────────────
 
 export const COLLECTION_LIMITS = {
@@ -181,6 +208,8 @@ export const TIMEOUTS = {
   API_REQUEST_MS:         15_000,
   /** Debounce delay for search input in milliseconds. */
   SEARCH_DEBOUNCE_MS:        400,
+  /** Sprint 9 Prompt 1 (Settings — Username Management): debounce delay before checking a candidate username's availability as the user types. Same feel as search's debounce — fast enough to feel "immediate" per the sprint's requirement, without firing a request on every keystroke. */
+  USERNAME_CHECK_DEBOUNCE_MS: 400,
   /** Debounce delay before an in-progress draft (e.g. Experience Creation) auto-saves. */
   AUTOSAVE_DEBOUNCE_MS:      800,
   /** Toast display duration (Design System §36: 3 seconds). */
