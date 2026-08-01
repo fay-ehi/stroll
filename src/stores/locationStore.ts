@@ -6,10 +6,15 @@
  *
  * Holds only session-scoped UI state — never persisted (no storage
  * middleware), so it resets naturally on every app relaunch, which is
- * exactly the "session" boundary both the permission soft-ask and the
- * city-switch suggestion are specified against:
+ * exactly the "session" boundary the permission soft-ask, the denied-
+ * state reminder, and the city-switch suggestion are all specified
+ * against:
  *   - softAskShownThisSession: the in-app permission card is allowed to
  *     appear "never more than once per app open" (Requirement 1).
+ *   - deniedCardShownThisSession: Sprint 11 Prompt 1 — once permission
+ *     has actually been denied, the Nearby slot doesn't just disappear;
+ *     it shows a lightweight "enable in Settings" reminder ONCE per
+ *     session, same never-nag rule as the soft-ask above.
  *   - citySwitchSuggestion: tracks which detected mismatch city has
  *     already been shown/dismissed this session (Requirement 4) — a
  *     NEW detected city replaces the record and can be shown once; the
@@ -28,9 +33,11 @@ interface CitySwitchSuggestionRecord {
 
 interface LocationUIState {
   softAskShownThisSession: boolean;
+  deniedCardShownThisSession: boolean;
   citySwitchSuggestion: CitySwitchSuggestionRecord | null;
 
   markSoftAskShown: () => void;
+  markDeniedCardShown: () => void;
   /** No-ops if `city` is already the tracked mismatch this session — re-presenting it would silently undo a dismissal the next time the feed re-evaluates the match. */
   presentCitySwitchSuggestion: (city: string) => void;
   dismissCitySwitchSuggestion: () => void;
@@ -40,9 +47,11 @@ interface LocationUIState {
 
 export const useLocationStore = create<LocationUIState>((set, get) => ({
   softAskShownThisSession: false,
+  deniedCardShownThisSession: false,
   citySwitchSuggestion: null,
 
   markSoftAskShown: () => set({ softAskShownThisSession: true }),
+  markDeniedCardShown: () => set({ deniedCardShownThisSession: true }),
 
   presentCitySwitchSuggestion: (city) => {
     const current = get().citySwitchSuggestion;

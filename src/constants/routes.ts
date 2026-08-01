@@ -173,6 +173,12 @@ export const MODAL_ROUTES = {
    * Zone row.
    */
   deleteAccount: '/(modals)/delete-account',
+  /**
+   * Sprint 11 Prompt 1 — City Switcher. Opened from DiscoverTopBar's
+   * city selector (PRD §8.3), which previously only showed a "coming
+   * soon" toast — see that component's diff this sprint.
+   */
+  citySwitcher: '/(modals)/city-switcher',
 } as const;
 
 // ─── Combined Export ────────────────────────────────────────────────────────────

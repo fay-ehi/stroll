@@ -42,3 +42,7 @@ export {
   CitySwitchSuggestionBanner,
   type CitySwitchSuggestionBannerProps,
 } from './CitySwitchSuggestionBanner';
+export {
+  NearbyLocationDeniedCard,
+  type NearbyLocationDeniedCardProps,
+} from './NearbyLocationDeniedCard';

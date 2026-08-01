@@ -441,13 +441,17 @@ export function useDiscoverFeed(params?: UseDiscoverFeedParams): UseDiscoverFeed
 // feed query itself. This keeps pagination, pull-to-refresh, and offline
 // caching (all of which already work today) completely untouched — a user
 // with no permission, no city match, or no nearby experiences gets an
-// `items` array that's identical, item for item, to `feed.experiences`.
+// `items` array that's identical, item for item, to `feed.experiences`
+// (Sprint 11 Prompt 1 exception: a user who has actually denied permission
+// gets exactly one `location_denied_reminder` item — see below).
 
 export type DiscoverFeedItem =
   | { kind: 'experience'; key: string; experience: ExperienceCardModel }
   | { kind: 'nearby'; key: string; nearby: NearbyExperienceModel }
   /** The in-feed permission ask (Requirement 1) rides the same cadence slots nearby cards use — it's what occupies the FIRST such slot when permission is still undetermined, so the OS prompt is only ever reachable from a contextual, already-scrolled-to card, never at launch. */
-  | { kind: 'location_permission_ask'; key: string };
+  | { kind: 'location_permission_ask'; key: string }
+  /** Sprint 11 Prompt 1 — occupies the first eligible slot when permission has actually been denied, instead of leaving it silently empty forever. Same never-nag rule as the permission ask: at most once per session. */
+  | { kind: 'location_denied_reminder'; key: string };
 
 export interface BuildDiscoverFeedItemsParams {
   experiences: ExperienceCardModel[];
@@ -456,6 +460,8 @@ export interface BuildDiscoverFeedItemsParams {
   showNearbyCards: boolean;
   /** Permission still undetermined AND the soft-ask hasn't been shown yet this session (locationStore.softAskShownThisSession). */
   showPermissionAsk: boolean;
+  /** Sprint 11 Prompt 1 — permission is 'denied' AND the reminder hasn't been shown yet this session (locationStore.deniedCardShownThisSession). Mutually exclusive with showNearbyCards/showPermissionAsk by construction (they key off 'granted'/'undetermined' respectively), so there's never a slot eligible for more than one of the three. */
+  showDeniedReminder: boolean;
   cadence?: number;
 }
 
@@ -463,6 +469,8 @@ export interface DiscoverFeedItemsResult {
   items: DiscoverFeedItem[];
   /** True the moment a permission-ask item is actually included in `items` — the caller uses this to mark it shown in locationStore, exactly once, exactly when it truly entered the feed (not merely "was eligible to"). */
   didInsertPermissionAsk: boolean;
+  /** Same contract as didInsertPermissionAsk, for the denied-state reminder. */
+  didInsertDeniedReminder: boolean;
 }
 
 export function buildDiscoverFeedItems(params: BuildDiscoverFeedItemsParams): DiscoverFeedItemsResult {
@@ -471,12 +479,14 @@ export function buildDiscoverFeedItems(params: BuildDiscoverFeedItemsParams): Di
     nearbyPool,
     showNearbyCards,
     showPermissionAsk,
+    showDeniedReminder,
     cadence = LOCATION_CONFIG.NEARBY_CARD_CADENCE,
   } = params;
 
   const items: DiscoverFeedItem[] = [];
   let nearbyPoolIndex = 0;
   let didInsertPermissionAsk = false;
+  let didInsertDeniedReminder = false;
 
   experiences.forEach((experience, index) => {
     items.push({ kind: 'experience', key: experience.id, experience });
@@ -504,13 +514,25 @@ export function buildDiscoverFeedItems(params: BuildDiscoverFeedItemsParams): Di
         items.push({ kind: 'nearby', key: `nearby-${nearby.experience.id}-${index}`, nearby });
         nearbyPoolIndex += 1;
       }
+      return;
     }
-    // Pool exhausted, permission denied, or city mismatched: the slot
-    // simply contributes nothing extra — indistinguishable from a feed
-    // with this feature turned off entirely.
+
+    // Sprint 11 Prompt 1 — permission has actually been denied. Rather
+    // than leaving every remaining slot silently empty for the rest of
+    // the session, the first eligible one teaches the person the
+    // feature exists (once — the `!didInsertDeniedReminder` guard mirrors
+    // the permission-ask guard above).
+    if (!didInsertDeniedReminder && showDeniedReminder) {
+      items.push({ kind: 'location_denied_reminder', key: `location-denied-reminder-${index}` });
+      didInsertDeniedReminder = true;
+    }
+    // Pool exhausted, permission undetermined but already asked this
+    // session, or city mismatched (handled by CitySwitchSuggestionBanner
+    // instead): the slot contributes nothing extra — indistinguishable
+    // from a feed with this feature turned off entirely.
   });
 
-  return { items, didInsertPermissionAsk };
+  return { items, didInsertPermissionAsk, didInsertDeniedReminder };
 }
 
 /**
@@ -518,7 +540,8 @@ export function buildDiscoverFeedItems(params: BuildDiscoverFeedItemsParams): Di
  * above never mutates state (no store writes inside the memo), so it's
  * safe to recompute on every relevant dependency change. The caller
  * (app/(app)/(tabs)/discover.tsx) is responsible for reacting to
- * `didInsertPermissionAsk` via its own `useEffect`, e.g.:
+ * `didInsertPermissionAsk` (and, since Sprint 11 Prompt 1,
+ * `didInsertDeniedReminder`) via its own `useEffect`, e.g.:
  *
  *   useEffect(() => {
  *     if (didInsertPermissionAsk) markSoftAskShown();
@@ -528,6 +551,13 @@ export function useDiscoverFeedItems(params: BuildDiscoverFeedItemsParams): Disc
   return useMemo(
     () => buildDiscoverFeedItems(params),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [params.experiences, params.nearbyPool, params.showNearbyCards, params.showPermissionAsk, params.cadence]
+    [
+      params.experiences,
+      params.nearbyPool,
+      params.showNearbyCards,
+      params.showPermissionAsk,
+      params.showDeniedReminder,
+      params.cadence,
+    ]
   );
 }

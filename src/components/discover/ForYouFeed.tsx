@@ -32,6 +32,7 @@ import {
   ExperienceFeedSkeleton,
   NearbyExperienceCard,
   LocationPermissionCard,
+  NearbyLocationDeniedCard,
   CitySwitchSuggestionBanner,
 } from '@/components/discover';
 import type { DiscoverSortMode } from '@/types/experience';
@@ -107,6 +108,8 @@ export interface ForYouFeedProps {
   items: DiscoverFeedItem[];
   onEnableLocation: () => void;
   onDismissLocationAsk: () => void;
+  /** Sprint 11 Prompt 1 — opens device Settings from the denied-state Nearby reminder card (location_denied_reminder). */
+  onOpenLocationSettings: () => void;
   /** The active mismatch to show as a banner, or null to hide it entirely. */
   citySwitchSuggestion: { city: string } | null;
   onSwitchCity: () => void;
@@ -125,6 +128,7 @@ export function ForYouFeed({
   items,
   onEnableLocation,
   onDismissLocationAsk,
+  onOpenLocationSettings,
   citySwitchSuggestion,
   onSwitchCity,
   onDismissCitySwitch,
@@ -156,11 +160,17 @@ export function ForYouFeed({
               <LocationPermissionCard onEnable={onEnableLocation} onDismiss={onDismissLocationAsk} />
             </View>
           );
+        case 'location_denied_reminder':
+          return (
+            <View style={styles.cardWrapper}>
+              <NearbyLocationDeniedCard onOpenSettings={onOpenLocationSettings} />
+            </View>
+          );
         default:
           return null;
       }
     },
-    [onEnableLocation, onDismissLocationAsk],
+    [onEnableLocation, onDismissLocationAsk, onOpenLocationSettings],
   );
 
   const keyExtractor = useCallback((item: DiscoverFeedItem) => item.key, []);

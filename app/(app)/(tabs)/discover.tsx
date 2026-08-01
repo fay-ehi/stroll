@@ -62,7 +62,7 @@
  */
 
 import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSharedValue } from 'react-native-reanimated';
 import { router } from 'expo-router';
@@ -144,6 +144,8 @@ export default function DiscoverScreen() {
 
   const softAskShownThisSession = useLocationStore((s) => s.softAskShownThisSession);
   const markSoftAskShown = useLocationStore((s) => s.markSoftAskShown);
+  const deniedCardShownThisSession = useLocationStore((s) => s.deniedCardShownThisSession);
+  const markDeniedCardShown = useLocationStore((s) => s.markDeniedCardShown);
   const citySwitchRecord = useLocationStore((s) => s.citySwitchSuggestion);
   const presentCitySwitchSuggestion = useLocationStore((s) => s.presentCitySwitchSuggestion);
   const dismissCitySwitchSuggestionInStore = useLocationStore((s) => s.dismissCitySwitchSuggestion);
@@ -159,12 +161,21 @@ export default function DiscoverScreen() {
 
   const showNearbyCards = location.permissionStatus === 'granted' && cityMatches;
   const showPermissionAsk = location.permissionStatus === 'undetermined' && !softAskShownThisSession;
+  // Sprint 11 Prompt 1 — "the Nearby section should NOT disappear" once
+  // permission has actually been denied. Same never-nag shape as the
+  // soft-ask above, gated on its own session flag.
+  const showDeniedReminder = location.permissionStatus === 'denied' && !deniedCardShownThisSession;
 
-  const { items: forYouItems, didInsertPermissionAsk } = useDiscoverFeedItems({
+  const {
+    items: forYouItems,
+    didInsertPermissionAsk,
+    didInsertDeniedReminder,
+  } = useDiscoverFeedItems({
     experiences: feed.experiences,
     nearbyPool,
     showNearbyCards,
     showPermissionAsk,
+    showDeniedReminder,
   });
 
   // Marks the soft-ask "used up" for this session the moment it actually
@@ -175,6 +186,11 @@ export default function DiscoverScreen() {
     if (didInsertPermissionAsk) markSoftAskShown();
   }, [didInsertPermissionAsk, markSoftAskShown]);
 
+  // Same reasoning, for the denied-state reminder (Sprint 11 Prompt 1).
+  useEffect(() => {
+    if (didInsertDeniedReminder) markDeniedCardShown();
+  }, [didInsertDeniedReminder, markDeniedCardShown]);
+
   const handleEnableLocation = () => {
     markSoftAskShown();
     void location.requestPermission();
@@ -182,6 +198,14 @@ export default function DiscoverScreen() {
 
   const handleDismissLocationAsk = () => {
     markSoftAskShown();
+  };
+
+  // Sprint 11 Prompt 1 — permission is already 'denied' by the time this
+  // card can show, so re-calling requestPermission() would just resolve
+  // to 'denied' again without ever showing the OS dialog. Settings is
+  // the only place that can actually change it from here.
+  const handleOpenLocationSettings = () => {
+    void Linking.openSettings();
   };
 
   // Requirement 4 — present/clear the suggestion as the match state
@@ -267,6 +291,7 @@ export default function DiscoverScreen() {
             items={forYouItems}
             onEnableLocation={handleEnableLocation}
             onDismissLocationAsk={handleDismissLocationAsk}
+            onOpenLocationSettings={handleOpenLocationSettings}
             citySwitchSuggestion={citySwitchSuggestion}
             onSwitchCity={handleSwitchCity}
             onDismissCitySwitch={handleDismissCitySwitch}

@@ -70,3 +70,18 @@ export const IOS_LOCATION_USAGE_DESCRIPTION =
 export function citySwitchSuggestionMessage(city: string): string {
   return `You're in ${city} now — switch your feed?`;
 }
+
+// ─── Denied-Permission Nearby Reminder Copy ─────────────────────────────────────
+// Sprint 11 Prompt 1: once permission has actually been denied,
+// requestForegroundPermissionsAsync() won't show the OS dialog again —
+// only the device Settings app can change it from here. This card's
+// action opens Settings directly (Linking.openSettings(), same pattern
+// PhotoGridPicker.tsx already uses for denied photo-library access)
+// rather than re-calling requestPermission(), which would just resolve
+// to 'denied' again silently.
+
+export const LOCATION_DENIED_COPY = {
+  title: 'Nearby Places',
+  body: 'Enable location in Settings to discover places around you.',
+  actionLabel: 'Open Settings',
+} as const;

@@ -14,9 +14,10 @@
  * these two interactive elements, and profile access already exists via
  * the bottom tab bar.
  *
- * The city switcher still has no route/screen — it stays a real,
- * tappable placeholder that gives honest feedback via the existing
- * Toast system, same pattern as ExperienceCard's save button.
+ * Sprint 11 Prompt 1 update: the city selector now opens the real City
+ * Switcher (app/(modals)/city-switcher.tsx) instead of showing "coming
+ * soon" — see that file for why it reuses the full NIGERIAN_CITIES list
+ * rather than the four cities in the PRD's illustrative wireframe.
  *
  * Sprint 8 Prompt 2 update: the notification bell now opens the real
  * Notification Center (see app/(app)/notifications.tsx) instead of
@@ -46,7 +47,6 @@ import { MapPin, ChevronDown, Bell } from 'lucide-react-native';
 import { theme } from '@/theme';
 import { H4, Caption, Icon } from '@/components/ui';
 import { NotificationBadge } from '@/components/notifications';
-import { showToast } from '@/stores/toastStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { hitSlop } from '@/theme/utils';
@@ -63,7 +63,7 @@ export function DiscoverTopBar({ city }: DiscoverTopBarProps) {
   const unreadCount = useUnreadNotificationCount(userId);
 
   const handleCityPress = () => {
-    showToast({ type: 'info', message: 'Switching cities is coming soon.' });
+    router.push(ROUTES.modals.citySwitcher as never);
   };
 
   const handleNotificationsPress = () => {

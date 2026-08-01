@@ -48,6 +48,8 @@ export default function ModalsLayout() {
       <Stack.Screen name="drafts" />
       {/* Sprint 9 Prompt 1 — Settings: Delete Account. */}
       <Stack.Screen name="delete-account" />
+      {/* Sprint 11 Prompt 1 — City Switcher. */}
+      <Stack.Screen name="city-switcher" />
       {/* TEMPORARY — see that file's own header for why. Remove this line alongside deleting the file once the gesture is confirmed and this test screen is no longer needed. */}
       <Stack.Screen name="like-gesture-test" />
     </Stack>
